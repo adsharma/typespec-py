@@ -80,6 +80,12 @@ wheels = [
 ]
 
 [[package]]
+name = "pypeg2"
+version = "2.15.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f9/bd/10398e2c2d2070cc8a9c7153abfbd4ddb2895a2c52a32722ab8689e0cc7d/pyPEG2-2.15.2.tar.gz", hash = "sha256:2b2d4f80d8e1a9370b2a91f4a25f4abf7f69b85c8da84cd23ec36451958a1f6d", size = 40334, upload-time = "2015-10-07T19:27:49.747Z" }
+
+[[package]]
 name = "pytest"
 version = "8.3.5"
 source = { registry = "https://pypi.org/simple" }
@@ -163,9 +169,13 @@ wheels = [
 name = "typespec-parser"
 version = "0.1.0"
 source = { editable = "." }
+dependencies = [
+    { name = "pypeg2" },
+]
 
 [package.optional-dependencies]
 dev = [
+    { name = "pypeg2" },
     { name = "pytest", version = "8.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
     { name = "pytest", version = "8.4.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
 ]
@@ -173,6 +183,8 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "dataclasses", marker = "python_full_version < '3.7'" },
+    { name = "pypeg2" },
+    { name = "pypeg2", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=6.0" },
 ]
 provides-extras = ["dev"]
