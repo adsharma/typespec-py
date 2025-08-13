@@ -1,2 +1,3 @@
 pytest>=6.0
 dataclasses; python_version < "3.7"
+pypeg2

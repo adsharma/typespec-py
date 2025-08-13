@@ -23,11 +23,13 @@ classifiers = [
 requires-python = ">=3.8"
 dependencies = [
     "dataclasses; python_version < '3.7'",
+    "pypeg2",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=6.0",
+    "pypeg2",
 ]
 
 [project.urls]
