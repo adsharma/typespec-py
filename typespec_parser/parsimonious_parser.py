@@ -65,17 +65,45 @@ class TypeSpecField:
 # Simplified TypeSpec grammar for parsimonious
 TYPESPEC_GRAMMAR = r"""
 typespec_script = statement+
-statement = model_statement / enum_statement
-model_statement = "model" ~r"\s+" identifier ~r"\s*" "{" ~r"\s*" model_properties? ~r"\s*" "}"
+statement = model_statement / enum_statement / union_statement
+model_statement = decorators? "model" ~r"\s+" identifier ~r"\s*" template_parameters? ~r"\s*" model_heritage? ~r"\s*" "{" ~r"\s*" model_properties? ~r"\s*" "}"
+model_heritage = ("extends" ~r"\s+" identifier) / ("is" ~r"\s+" identifier)
 model_properties = model_property (comma_or_semicolon model_property)* comma_or_semicolon?
-model_property = identifier optional_marker? ":" ~r"\s*" type_expression
+model_property = decorators? identifier optional_marker? ":" ~r"\s*" type_expression
 comma_or_semicolon = ~r"[,;]" ~r"\s*"
+decorators = decorator+
+decorator = "@" identifier decorator_arguments?
+decorator_arguments = "(" expression_list? ")"
+expression_list = expression ("," ~r"\s*" expression)*
 optional_marker = "?"
-type_expression = identifier type_suffix?
-type_suffix = ("[]") / ("?" ~r"\s*") / ("[]" "?" ~r"\s*")
-enum_statement = "enum" ~r"\s+" identifier ~r"\s*" "{" ~r"\s*" enum_members? ~r"\s*" "}"
+type_expression = union_expression
+union_expression = intersection_expression ("|" ~r"\s*" intersection_expression)*
+intersection_expression = array_expression ("&" ~r"\s*" array_expression)*
+array_expression = primary_expression ("[" "]" ~r"\s*")*
+primary_expression = literal / identifier template_arguments? / parenthesized_expression / object_literal / array_literal / model_expression
+template_arguments = "<" template_argument_list ">"
+template_argument_list = template_argument ("," ~r"\s*" template_argument)*
+template_argument = (identifier "=" ~r"\s*)? expression
+template_parameters = "<" template_parameter_list ">"
+template_parameter_list = template_parameter ("," ~r"\s*" template_parameter)*
+template_parameter = identifier template_parameter_constraint? template_parameter_default?
+template_parameter_constraint = "extends" ~r"\s+" identifier
+template_parameter_default = "=" ~r"\s*" expression
+parenthesized_expression = "(" ~r"\s*" type_expression ~r"\s*" ")"
+object_literal = "#{" ~r"\s*" model_properties? ~r"\s*" "}"
+array_literal = "#[" ~r"\s*" expression_list? ~r"\s*" "]"
+model_expression = "{" ~r"\s*" model_properties? ~r"\s*" "}"
+literal = string_literal / boolean_literal / numeric_literal
+string_literal = ~r'"[^"]*"'
+boolean_literal = "true" / "false"
+numeric_literal = ~r"[+-]?[0-9]+(\.[0-9]+)?"
+enum_statement = decorators? "enum" ~r"\s+" identifier ~r"\s*" "{" ~r"\s*" enum_members? ~r"\s*" "}"
 enum_members = enum_member (comma_or_semicolon enum_member)* comma_or_semicolon?
-enum_member = identifier
+enum_member = decorators? (identifier enum_member_value?) / (string_literal enum_member_value?)
+enum_member_value = ":" ~r"\s*" (string_literal / numeric_literal)
+union_statement = decorators? "union" ~r"\s+" identifier ~r"\s*" "{" ~r"\s*" union_members? ~r"\s*" "}"
+union_members = union_member (comma_or_semicolon union_member)* comma_or_semicolon?
+union_member = decorators? (identifier ":" ~r"\s*" type_expression) / (string_literal ":" ~r"\s*" type_expression) / type_expression
 identifier = ~r"[a-zA-Z_][a-zA-Z0-9_]*"
 """
 
@@ -92,10 +120,31 @@ class TypeSpecVisitor(NodeVisitor):
 
     def visit_model_statement(self, node, visited_children):
         """Process a model statement."""
-        _, _, _, identifier_node, _, _, _, _, properties_node, _, _, _ = (
-            visited_children
-        )
+        # Handle decorators if present
+        idx = 0
+        if visited_children[0] is not None:
+            idx = 1  # Skip decorators
+
+        # Skip "model" keyword
+        idx += 1
+
+        # Get identifier
+        identifier_node = visited_children[idx]
         model_name = identifier_node.text
+
+        # Find properties (should be the last non-None child before the closing brace)
+        properties_node = None
+        for child in reversed(visited_children):
+            if (
+                child is not None
+                and child != []
+                and hasattr(child, "text")
+                and child.text == "}"
+            ):
+                break
+            if child is not None and child != []:
+                properties_node = child
+                break
 
         # Create definition
         definition = TypeSpecDefinition(name=model_name, type=TypeSpecType.OBJECT)
@@ -121,11 +170,26 @@ class TypeSpecVisitor(NodeVisitor):
 
     def visit_model_property(self, node, visited_children):
         """Process a model property."""
-        identifier_node, optional_marker_node, _, _, type_expr_node = visited_children
-        property_name = identifier_node.text
+        # Handle decorators if present
+        idx = 0
+        if visited_children[0] is not None:
+            idx = 1  # Skip decorators
 
-        # Handle optional marker
-        is_optional = optional_marker_node is not None and optional_marker_node != []
+        identifier_node = visited_children[idx]
+        idx += 1
+
+        # Check for optional marker
+        is_optional = False
+        if visited_children[idx] is not None and visited_children[idx] != []:
+            is_optional = True
+            idx += 1
+
+        # Skip colon
+        idx += 1
+
+        # Get type expression
+        type_expr_node = visited_children[idx]
+        property_name = identifier_node.text
 
         # Handle type expression
         type_info = type_expr_node
@@ -148,28 +212,17 @@ class TypeSpecVisitor(NodeVisitor):
 
     def visit_type_expression(self, node, visited_children):
         """Process a type expression."""
-        identifier_node = visited_children[0]
-        type_name = identifier_node.text
+        # For now, just handle simple identifiers
+        if isinstance(visited_children[0], list):
+            first_child = visited_children[0][0] if visited_children[0] else None
+        else:
+            first_child = visited_children[0]
 
-        # Handle suffix if present
-        is_array = False
-        is_optional = False
-
-        if len(visited_children) > 1 and visited_children[1] is not None:
-            suffix_node = visited_children[1]
-            # Check suffix text
-            suffix_text = ""
-            if hasattr(suffix_node, "text"):
-                suffix_text = suffix_node.text
-            elif isinstance(suffix_node, list):
-                for item in suffix_node:
-                    if hasattr(item, "text"):
-                        suffix_text += item.text
-
-            is_array = "[]" in suffix_text
-            is_optional = (
-                "?" in suffix_text and not is_array
-            )  # Only mark as optional if not array
+        if hasattr(first_child, "text"):
+            type_name = first_child.text
+        else:
+            # Handle literal types like "red" | "blue"
+            type_name = "string"
 
         # Handle references
         reference = None
@@ -181,15 +234,38 @@ class TypeSpecVisitor(NodeVisitor):
 
         return {
             "type": field_type,
-            "is_array": is_array,
-            "is_optional": is_optional,
+            "is_array": False,
+            "is_optional": False,
             "reference": reference,
         }
 
     def visit_enum_statement(self, node, visited_children):
         """Process an enum statement."""
-        _, _, _, identifier_node, _, _, _, _, members_node, _, _, _ = visited_children
+        # Handle decorators if present
+        idx = 0
+        if visited_children[0] is not None:
+            idx = 1  # Skip decorators
+
+        # Skip "enum" keyword
+        idx += 1
+
+        # Get identifier
+        identifier_node = visited_children[idx]
         enum_name = identifier_node.text
+
+        # Find members (should be the second to last non-None child before the closing brace)
+        members_node = None
+        for child in reversed(visited_children):
+            if (
+                child is not None
+                and child != []
+                and hasattr(child, "text")
+                and child.text == "}"
+            ):
+                break
+            if child is not None and child != []:
+                members_node = child
+                break
 
         # Create definition
         definition = TypeSpecDefinition(name=enum_name, type=TypeSpecType.ENUM)
@@ -215,8 +291,16 @@ class TypeSpecVisitor(NodeVisitor):
 
     def visit_enum_member(self, node, visited_children):
         """Process an enum member."""
-        identifier_node = visited_children[0]
-        return identifier_node.text
+        # Handle decorators if present
+        idx = 0
+        if visited_children[0] is not None:
+            idx = 1  # Skip decorators
+
+        # Get identifier or string literal
+        member_node = visited_children[idx]
+        if hasattr(member_node, "text"):
+            return member_node.text
+        return str(member_node)
 
     def visit_identifier(self, node, visited_children):
         """Process an identifier."""

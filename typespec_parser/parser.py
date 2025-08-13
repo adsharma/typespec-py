@@ -121,9 +121,20 @@ class TypeSpecParser:
 
     def _parse_model(self, lines: List[str], start_index: int) -> int:
         """Parse a model definition."""
-        # Extract model name
+        # Extract model name (handle decorators and other keywords)
         model_line = lines[start_index].strip()
-        model_name = model_line.split(" ")[1].split("{")[0]
+
+        # Skip decorators
+        while model_line.startswith("@"):
+            start_index += 1
+            model_line = lines[start_index].strip()
+
+        # Extract model name, handling various syntax
+        model_parts = model_line.split()
+        model_idx = model_parts.index("model") if "model" in model_parts else 0
+        model_name = (
+            model_parts[model_idx + 1].split("{")[0].split("(")[0].split("<")[0]
+        )
 
         # Create definition
         definition = TypeSpecDefinition(name=model_name, type=TypeSpecType.OBJECT)
@@ -138,21 +149,37 @@ class TypeSpecParser:
                 i += 1
                 continue
 
-            # Parse field
-            field = self._parse_field(line)
-            if field:
-                definition.fields.append(field)
-
-            i += 1
+            # Handle decorators on separate lines from field definitions
+            if line.startswith("@"):
+                # Parse the decorator line as a field (the decorator handling is in _parse_field)
+                field = self._parse_field(line)
+                if field:
+                    definition.fields.append(field)
+                i += 1
+            else:
+                # Parse field
+                field = self._parse_field(line)
+                if field:
+                    definition.fields.append(field)
+                i += 1
 
         self.definitions[model_name] = definition
         return i + 1  # Skip closing brace
 
     def _parse_enum(self, lines: List[str], start_index: int) -> int:
         """Parse an enum definition."""
-        # Extract enum name
+        # Extract enum name (handle decorators)
         enum_line = lines[start_index].strip()
-        enum_name = enum_line.split(" ")[1].split("{")[0]
+
+        # Skip decorators
+        while enum_line.startswith("@"):
+            start_index += 1
+            enum_line = lines[start_index].strip()
+
+        # Extract enum name
+        enum_parts = enum_line.split()
+        enum_idx = enum_parts.index("enum") if "enum" in enum_parts else 0
+        enum_name = enum_parts[enum_idx + 1].split("{")[0]
 
         # Create definition
         definition = TypeSpecDefinition(name=enum_name, type=TypeSpecType.ENUM)
@@ -167,8 +194,13 @@ class TypeSpecParser:
                 i += 1
                 continue
 
-            # Extract enum value
-            value = line.split(",")[0]  # Remove trailing comma if present
+            # Skip decorators
+            if line.startswith("@"):
+                i += 1
+                continue
+
+            # Extract enum value, handling trailing commas and semicolons
+            value = line.split(",")[0].split(";")[0].strip()
             if value:
                 definition.values.append(value)
 
@@ -182,9 +214,45 @@ class TypeSpecParser:
         # Remove trailing semicolon or comma
         line = line.rstrip(";,")
 
+        # Check for @key decorator
+        has_key_decorator = "@key" in line
+
+        # Extract decorators but keep important ones
+        while line.startswith("@"):
+            # Find the end of the decorator
+            if "(" in line and ")" in line:
+                # Simple case: decorator with parentheses
+                end_paren = line.find(")") + 1
+                line = line[end_paren:].strip()
+            elif " " in line:
+                # Decorator without parentheses
+                parts = line.split(" ", 1)
+                line = parts[1] if len(parts) > 1 else ""
+            else:
+                # Just the decorator name, move to the next part
+                # This handles cases like "@key id: string;"
+                parts = line.split(" ", 1)
+                if len(parts) > 1:
+                    line = parts[1]
+                else:
+                    # Malformed line, skip it
+                    return None
+
         # Check if optional (marked with ?)
         is_optional = "?" in line
-        line = line.replace("?", "")
+        if is_optional:
+            # Remove the ? but be careful not to remove it from string literals
+            parts = line.split(":")
+            if len(parts) >= 2:
+                # Check if ? is in the type part (after the colon)
+                type_part = parts[-1].strip()
+                if type_part.endswith("?"):
+                    type_part = type_part[:-1]
+                    parts[-1] = type_part
+                    line = ":".join(parts)
+            else:
+                # ? is in the name part, which shouldn't happen but let's handle it
+                line = line.replace("?", "")
 
         # Split into name and type
         if ":" not in line:
@@ -194,21 +262,47 @@ class TypeSpecParser:
         name = name.strip()
         type_str = type_str.strip()
 
-        # Check if array (marked with [])
-        is_array = type_str.endswith("[]")
-        if is_array:
-            type_str = type_str[:-2]  # Remove []
-
-        # Handle references to other models
-        reference = None
-        if type_str in ["string", "integer", "boolean"]:
-            field_type = type_str
-        elif type_str in self.definitions:
-            field_type = "object"
-            reference = type_str
+        # Handle union types like "red" | "blue"
+        if "|" in type_str:
+            # For union types with string literals, create an enum-like string
+            if '"' in type_str or "'" in type_str:
+                field_type = "string"
+            else:
+                # For other union types, treat as object
+                field_type = "object"
+            is_array = False
+            reference = None
         else:
-            # Default to string for unknown types
-            field_type = "string"
+            # Check if array (marked with [])
+            is_array = type_str.endswith("[]")
+            if is_array:
+                type_str = type_str[:-2]  # Remove []
+
+            # Handle references to other models and special types
+            reference = None
+            if type_str in ["string", "integer", "int32", "boolean"]:
+                field_type = type_str
+                # Normalize int32 to integer
+                if field_type == "int32":
+                    field_type = "integer"
+            elif "." in type_str:
+                # Handle enum member references like WidgetKind.Heavy
+                enum_ref = type_str.split(".")[0]
+                if enum_ref in self.definitions:
+                    field_type = "object"
+                    reference = enum_ref
+                else:
+                    field_type = "string"
+            elif type_str in self.definitions:
+                field_type = "object"
+                reference = type_str
+            else:
+                # Default to string for unknown types
+                field_type = "string"
+
+        # Add @key decorator back to the field name if it was present
+        if has_key_decorator:
+            name = "@key " + name
 
         return TypeSpecField(
             name=name,
