@@ -1,16 +1,16 @@
-"""TypeSpec parser that generates Python dataclasses using PEG grammar."""
+"""TypeSpec parser that generates Python dataclasses using parsimonious."""
 
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional
 
-# Try to import our custom PEG parser
+# Try to import our parsimonious parser
 try:
-    from .peg.parser import parse_typespec as peg_parse
+    from .parsimonious_parser import parse_typespec as parsimonious_parse
 
-    PEG_AVAILABLE = True
+    PARSIMONIOUS_AVAILABLE = True
 except ImportError:
-    PEG_AVAILABLE = False
+    PARSIMONIOUS_AVAILABLE = False
 
 
 class TypeSpecType(Enum):
@@ -53,27 +53,29 @@ class TypeSpecParser:
 
     def parse(self, typespec_content: str) -> Dict[str, TypeSpecDefinition]:
         """Parse TypeSpec content and return definitions."""
-        # Try to use PEG parser if available
-        if PEG_AVAILABLE:
+        # Try to use parsimonious parser if available
+        if PARSIMONIOUS_AVAILABLE:
             try:
-                return self._parse_with_peg(typespec_content)
+                return self._parse_with_parsimonious(typespec_content)
             except Exception as e:
-                print(f"PEG parsing failed: {e}")
+                print(f"parsimonious parsing failed: {e}")
                 print("Falling back to line-based parser")
 
         # Fallback to original line-based parser
         return self._parse_with_lines(typespec_content)
 
-    def _parse_with_peg(self, typespec_content: str) -> Dict[str, TypeSpecDefinition]:
-        """Parse TypeSpec content using our custom PEG parser."""
-        # Parse the content using our PEG parser
-        peg_definitions = peg_parse(typespec_content)
+    def _parse_with_parsimonious(
+        self, typespec_content: str
+    ) -> Dict[str, TypeSpecDefinition]:
+        """Parse TypeSpec content using our parsimonious parser."""
+        # Parse the content using our parsimonious parser
+        parsimonious_definitions = parsimonious_parse(typespec_content)
 
-        # Convert PEG definitions to our format
+        # Convert parsimonious definitions to our format
         self.definitions = {}
-        for name, peg_def in peg_definitions.items():
+        for name, parsimonious_def in parsimonious_definitions.items():
             # Convert the definition type
-            if peg_def.type.name == "ENUM":
+            if parsimonious_def.type.name == "ENUM":
                 definition_type = TypeSpecType.ENUM
             else:
                 definition_type = TypeSpecType.OBJECT
@@ -84,10 +86,10 @@ class TypeSpecParser:
             )
 
             # Copy fields or values
-            if peg_def.type.name == "ENUM":
-                definition.values = peg_def.values
+            if parsimonious_def.type.name == "ENUM":
+                definition.values = parsimonious_def.values
             else:
-                definition.fields = peg_def.fields
+                definition.fields = parsimonious_def.fields
 
             self.definitions[name] = definition
 

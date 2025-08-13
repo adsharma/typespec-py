@@ -1,2 +1,2 @@
 dataclasses; python_version < "3.7"
-pypeg2
+parsimonious>=0.10.0
