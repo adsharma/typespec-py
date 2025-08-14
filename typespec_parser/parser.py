@@ -51,6 +51,11 @@ class TypeSpecParser:
     def __init__(self):
         self.definitions: Dict[str, TypeSpecDefinition] = {}
 
+    @staticmethod
+    def _normalize_enum_member(value: str) -> str:
+        """Convert enum member name to uppercase Python enum format."""
+        return value.upper().replace("-", "_").replace(" ", "_")
+
     def parse(self, typespec_content: str) -> Dict[str, TypeSpecDefinition]:
         """Parse TypeSpec content and return definitions."""
         # Try to use parsimonious parser if available
@@ -285,8 +290,16 @@ class TypeSpecParser:
                     field_type = "integer"
             elif "." in type_str:
                 # Handle enum member references like WidgetKind.Heavy
-                enum_ref = type_str.split(".")[0]
-                if enum_ref in self.definitions:
+                enum_ref, member_name = type_str.split(".", 1)
+                if (
+                    enum_ref in self.definitions
+                    and self.definitions[enum_ref].type == TypeSpecType.ENUM
+                ):
+                    # Convert enum member name to uppercase Python enum format
+                    python_member_name = self._normalize_enum_member(member_name)
+                    field_type = "object"
+                    reference = f"{enum_ref}.{python_member_name}"
+                elif enum_ref in self.definitions:
                     field_type = "object"
                     reference = enum_ref
                 else:
@@ -346,7 +359,7 @@ class TypeSpecParser:
         else:
             for value in definition.values:
                 # Convert to valid Python enum format
-                enum_value = value.upper().replace("-", "_").replace(" ", "_")
+                enum_value = self._normalize_enum_member(value)
                 lines.append(f"    {enum_value} = '{value}'")
 
         return "\n".join(lines)

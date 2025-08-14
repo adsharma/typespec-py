@@ -53,12 +53,12 @@ extends_model_heritage = "extends" ws expression
 model_body = model_property_list
 model_property_list = model_property (ws comma_or_semicolon ws model_property)* (ws comma_or_semicolon)?
 model_property = model_spread_property /
-    (decorator_list? identifier ws optional_marker? ws ":" ws expression) /
-    (decorator_list? string_literal ws optional_marker? ws ":" ws expression)
+    (decorator_list? identifier ws ":" ws expression optional_marker? ws) /
+    (decorator_list? string_literal ws ":" ws expression ws optional_marker? )
 model_spread_property = "..." ws reference_expression
 comma_or_semicolon = ~r"[,;]"
 decorator_list = decorator (ws decorator)*
-decorator = "@" ws identifier_or_member_expression ws decorator_arguments?
+decorator = "@" ws identifier_or_member_expression ws decorator_arguments? ws
 decorator_arguments = "(" ws complex_expression? ws ")"
 complex_expression = object_literal / array_literal / expression_list / expression
 expression_list = expression (ws "," ws expression)*
@@ -125,17 +125,29 @@ class TypeSpecVisitor(NodeVisitor):
     def __init__(self):
         self.definitions: Dict[str, TypeSpecDefinition] = {}
 
+    @staticmethod
+    def _normalize_enum_member(value: str) -> str:
+        """Convert enum member name to uppercase Python enum format."""
+        return value.upper().replace("-", "_").replace(" ", "_")
+
     def visit_typespec_script(self, node, visited_children):
         """Process the entire TypeSpec script."""
         return self.definitions
 
     def visit_model_statement(self, node, visited_children):
         """Process a model statement."""
-        # Find the model name from the identifier nodes
+        # Parse model name from the structure we know:
+        # decorator_list?, "model", ws, identifier, ws, template_parameters?, ws, model_heritage?, ws, "{", ws, model_body?, ws, "}"
         model_name = None
-        for child in visited_children:
-            if (
-                hasattr(child, "text")
+
+        # Look through the parse tree to find the identifier that comes after "model"
+        # We need to find the actual node structure
+        model_keyword_found = False
+        for child in node.children:
+            if hasattr(child, "text") and child.text == "model":
+                model_keyword_found = True
+            elif (
+                model_keyword_found
                 and hasattr(child, "expr_name")
                 and child.expr_name == "identifier"
             ):
@@ -145,10 +157,19 @@ class TypeSpecVisitor(NodeVisitor):
         if not model_name:
             # Fallback - extract from node text
             text = node.text.strip()
-            if text.startswith("model "):
-                parts = text.split()
-                if len(parts) > 1:
-                    model_name = parts[1].split("{")[0].strip()
+            lines = text.split("\n")
+            for line in lines:
+                line = line.strip()
+                if line.startswith("model ") or " model " in line:
+                    # Find 'model' keyword and get the next word
+                    parts = line.split()
+                    try:
+                        model_idx = parts.index("model")
+                        if model_idx + 1 < len(parts):
+                            model_name = parts[model_idx + 1].split("{")[0].strip()
+                            break
+                    except ValueError:
+                        continue
 
         if not model_name:
             model_name = "Unknown"
@@ -209,7 +230,14 @@ class TypeSpecVisitor(NodeVisitor):
                     "boolean",
                     "number",
                 ]:
-                    reference = field_type
+                    # Check if this is an enum member reference like WidgetKind.Heavy
+                    if "." in field_type:
+                        enum_ref, member_name = field_type.split(".", 1)
+                        # For now, normalize the member name to uppercase Python convention
+                        python_member_name = self._normalize_enum_member(member_name)
+                        reference = f"{enum_ref}.{python_member_name}"
+                    else:
+                        reference = field_type
                     field_type = "object"
 
                 return TypeSpecField(
