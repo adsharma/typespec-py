@@ -55,14 +55,12 @@ class TypeSpecParser:
         """Parse TypeSpec content and return definitions."""
         # Try to use parsimonious parser if available
         if PARSIMONIOUS_AVAILABLE:
-            try:
-                return self._parse_with_parsimonious(typespec_content)
-            except Exception as e:
-                print(f"parsimonious parsing failed: {e}")
-                print("Falling back to line-based parser")
+            return self._parse_with_parsimonious(typespec_content)
+        else:
+            raise Exception("Parsimonious parser not available")
 
-        # Fallback to original line-based parser
-        return self._parse_with_lines(typespec_content)
+        # Fallback disabled - use only parsimonious parser
+        # return self._parse_with_lines(typespec_content)
 
     def _parse_with_parsimonious(
         self, typespec_content: str
