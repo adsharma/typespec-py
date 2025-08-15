@@ -1,6 +1,7 @@
 """Command-line interface for the TypeSpec parser."""
 
 import argparse
+import subprocess
 import sys
 
 from .parser import TypeSpecParser
@@ -13,6 +14,9 @@ def main():
     )
     parser.add_argument("input", help="Input TypeSpec file")
     parser.add_argument("-o", "--output", help="Output Python file (default: stdout)")
+    parser.add_argument(
+        "--no-format", action="store_true", help="Skip formatting the output with black"
+    )
 
     args = parser.parse_args()
 
@@ -31,6 +35,25 @@ def main():
     ts_parser = TypeSpecParser()
     ts_parser.parse(content)
     output = ts_parser.generate_dataclasses()
+
+    # Format with black if requested
+    if not args.no_format:
+        try:
+            result = subprocess.run(
+                ["black", "-"],
+                input=output,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                output = result.stdout
+            else:
+                print(
+                    f"Warning: Black formatting failed: {result.stderr}",
+                    file=sys.stderr,
+                )
+        except FileNotFoundError:
+            print("Warning: Black not found. Skipping formatting.", file=sys.stderr)
 
     # Output result
     if args.output:
