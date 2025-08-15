@@ -135,15 +135,14 @@ class TypeSpecVisitor(NodeVisitor):
         return self.definitions
 
     def visit_model_statement(self, node, visited_children):
-        """Process a model statement."""
-        # Parse model name from the structure we know:
-        # decorator_list?, "model", ws, identifier, ws, template_parameters?, ws, model_heritage?, ws, "{", ws, model_body?, ws, "}"
+        """Process a model statement, including inheritance."""
         model_name = None
+        base_model_name = None
+        properties = []
 
-        # Look through the parse tree to find the identifier that comes after "model"
-        # We need to find the actual node structure
+        # Find model name and base model (if any)
         model_keyword_found = False
-        for child in node.children:
+        for idx, child in enumerate(node.children):
             if hasattr(child, "text") and child.text == "model":
                 model_keyword_found = True
             elif (
@@ -152,7 +151,19 @@ class TypeSpecVisitor(NodeVisitor):
                 and child.expr_name == "identifier"
             ):
                 model_name = child.text
-                break
+            # Look for model_heritage (extends)
+            if hasattr(child, "expr_name") and child.expr_name == "model_heritage":
+                # Check if it's extends_model_heritage
+                for h in child.children:
+                    if (
+                        hasattr(h, "expr_name")
+                        and h.expr_name == "extends_model_heritage"
+                    ):
+                        # The base model name is in the expression child
+                        for e in h.children:
+                            if hasattr(e, "expr_name") and e.expr_name == "expression":
+                                # Get the text of the base model name
+                                base_model_name = e.text.strip()
 
         if not model_name:
             # Fallback - extract from node text
@@ -161,7 +172,6 @@ class TypeSpecVisitor(NodeVisitor):
             for line in lines:
                 line = line.strip()
                 if line.startswith("model ") or " model " in line:
-                    # Find 'model' keyword and get the next word
                     parts = line.split()
                     try:
                         model_idx = parts.index("model")
@@ -170,84 +180,88 @@ class TypeSpecVisitor(NodeVisitor):
                             break
                     except ValueError:
                         continue
-
         if not model_name:
             model_name = "Unknown"
 
         # Find properties from the visited children
-        properties = []
         for child in visited_children:
             if isinstance(child, TypeSpecField):
                 properties.append(child)
             elif isinstance(child, list):
-                # Handle nested lists
                 for subitem in child:
                     if isinstance(subitem, TypeSpecField):
                         properties.append(subitem)
 
-        # Create definition
+        # If model extends another, inherit its fields
+        if base_model_name and base_model_name in self.definitions:
+            base_fields = self.definitions[base_model_name].fields
+            # Avoid duplicate fields (by name)
+            base_field_names = {f.name for f in properties}
+            inherited_fields = [
+                f for f in base_fields if f.name not in base_field_names
+            ]
+            properties = inherited_fields + properties
+
         definition = TypeSpecDefinition(name=model_name, type=TypeSpecType.OBJECT)
         definition.fields = properties
-
         self.definitions[model_name] = definition
         return definition
 
     def visit_model_property(self, node, visited_children):
         """Process a model property."""
-        # The grammar structure shows model_property has one child with the full content
-        if len(visited_children) == 1 and visited_children[0] is not None:
-            # Let's parse this manually from the node text
-            text = node.text.strip()
+        # Always parse the property from node.text
+        text = node.text.strip()
+        parts = text.split(":")
+        if len(parts) >= 2:
+            left_part = parts[0].strip()
+            right_part = parts[1].strip().rstrip(";")
 
-            # Simple parsing: find identifier, optional marker, and type
-            parts = text.split(":")
-            if len(parts) >= 2:
-                left_part = parts[0].strip()
-                right_part = parts[1].strip().rstrip(";")
+            # Check for optional marker
+            is_optional = left_part.endswith("?")
+            if is_optional:
+                left_part = left_part[:-1].strip()
 
-                # Check for optional marker
-                is_optional = left_part.endswith("?")
-                if is_optional:
-                    left_part = left_part[:-1].strip()
+            # Extract property name (skip decorators for now)
+            property_name = left_part.split()[-1] if left_part else "unknown"
 
-                # Extract property name (skip decorators for now)
-                property_name = left_part.split()[-1] if left_part else "unknown"
+            # Extract type
+            field_type = right_part if right_part else "string"
 
-                # Extract type
-                field_type = right_part if right_part else "string"
+            # Check for array syntax
+            is_array = field_type.endswith("[]")
+            if is_array:
+                field_type = field_type[:-2]
 
-                # Check for array syntax
-                is_array = field_type.endswith("[]")
-                if is_array:
-                    field_type = field_type[:-2]
+            # If type ends with '?', mark as optional and strip '?'
+            if field_type.endswith("?"):
+                is_optional = True
+                field_type = field_type[:-1]
 
-                # Handle reference types
-                reference = None
-                if field_type not in [
-                    "string",
-                    "integer",
-                    "int32",
-                    "boolean",
-                    "number",
-                ]:
-                    # Check if this is an enum member reference like WidgetKind.Heavy
-                    if "." in field_type:
-                        enum_ref, member_name = field_type.split(".", 1)
-                        # For now, normalize the member name to uppercase Python convention
-                        python_member_name = self._normalize_enum_member(member_name)
-                        reference = f"{enum_ref}.{python_member_name}"
-                    else:
-                        reference = field_type
-                    field_type = "object"
+            # Handle reference types
+            reference = None
+            if field_type not in [
+                "string",
+                "integer",
+                "int32",
+                "boolean",
+                "number",
+            ]:
+                # Check if this is an enum member reference like WidgetKind.Heavy
+                if "." in field_type:
+                    enum_ref, member_name = field_type.split(".", 1)
+                    python_member_name = self._normalize_enum_member(member_name)
+                    reference = f"{enum_ref}.{python_member_name}"
+                else:
+                    reference = field_type
+                field_type = "object"
 
-                return TypeSpecField(
-                    name=property_name,
-                    type=field_type,
-                    is_optional=is_optional,
-                    is_array=is_array,
-                    reference=reference,
-                )
-
+            return TypeSpecField(
+                name=property_name,
+                type=field_type,
+                is_optional=is_optional,
+                is_array=is_array,
+                reference=reference,
+            )
         return None
 
     def visit_type_expression(self, node, visited_children):
@@ -332,16 +346,19 @@ class TypeSpecVisitor(NodeVisitor):
 
     def visit_model_property_list(self, node, visited_children):
         """Process model property list."""
-        # Collect all the properties
+        # Flatten and filter None values to ensure all properties are captured
         properties = []
-        for child in visited_children:
-            if isinstance(child, TypeSpecField):
-                properties.append(child)
-            elif isinstance(child, list):
-                # Handle nested lists
-                for subitem in child:
-                    if isinstance(subitem, TypeSpecField):
-                        properties.append(subitem)
+
+        def flatten(items):
+            for item in items:
+                if isinstance(item, TypeSpecField):
+                    properties.append(item)
+                elif isinstance(item, list):
+                    flatten(item)
+
+        flatten(visited_children)
+        # Remove None values
+        properties = [p for p in properties if p is not None]
         return properties
 
     def visit_enum_body(self, node, visited_children):
@@ -387,11 +404,20 @@ class TypeSpecVisitor(NodeVisitor):
         return node
 
     def generic_visit(self, node, visited_children):
-        """Generic visitor that returns the first non-None child."""
+        """Generic visitor that flattens and collects all non-None children."""
+        result = []
         for child in visited_children:
-            if child is not None and child != []:
-                return child
-        return None
+            if child is None or child == []:
+                continue
+            if isinstance(child, list):
+                result.extend(child)
+            else:
+                result.append(child)
+        if not result:
+            return None
+        if len(result) == 1:
+            return result[0]
+        return result
 
 
 def parse_typespec(content: str) -> Dict[str, TypeSpecDefinition]:

@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
+from typing import List, Optional
 
 
 class Status(Enum):
@@ -16,24 +17,31 @@ class WidgetKind(Enum):
 class Address:
     street: str
     city: str
+    country: str
 
 
 @dataclass
 class User:
     name: str
     age: int
+    email: Optional[str]
+    address: Address
+    tags: List[str]
+    addresses: List[Address]
 
 
 @dataclass
 class Company:
     name: str
     status: Status
+    employees: List[User]
 
 
 @dataclass
 class WidgetBase:
     id: str
     weight: str
+    color: "red" | "blue"
 
 
 @dataclass

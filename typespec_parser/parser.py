@@ -378,22 +378,34 @@ class TypeSpecParser:
 
     def _generate_field(self, field: TypeSpecField) -> str:
         """Generate a dataclass field."""
+
         # Determine Python type
+        def is_union_type(type_str):
+            return "|" in type_str
+
+        # Map union types to str
+        if is_union_type(field.type):
+            base_type = "str"
+        else:
+            base_type = self._map_type(field.type)
+
         if field.is_array:
             if field.reference:
                 python_type = f"List[{field.reference}]"
             else:
-                python_type = f"List[{self._map_type(field.type)}]"
-        elif field.is_optional:
+                python_type = f"List[{base_type}]"
+        elif field.is_optional or (
+            isinstance(field.type, str) and field.type.endswith("?")
+        ):
             if field.reference:
                 python_type = f"Optional[{field.reference}]"
             else:
-                python_type = f"Optional[{self._map_type(field.type)}]"
+                python_type = f"Optional[{base_type}]"
         else:
             if field.reference:
                 python_type = field.reference
             else:
-                python_type = self._map_type(field.type)
+                python_type = base_type
 
         return f"{field.name}: {python_type}"
 
