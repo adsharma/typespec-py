@@ -3,6 +3,11 @@ from enum import Enum
 from typing import List, Optional
 
 
+class ColorEnum(Enum):
+    RED = "red"
+    BLUE = "blue"
+
+
 class Status(Enum):
     ACTIVE = "active"
     INACTIVE = "inactive"
@@ -25,33 +30,33 @@ class User:
     name: str
     age: int
     email: Optional[str]
-    address: Address
+    address: object
     tags: List[str]
-    addresses: List[Address]
+    addresses: List[object]
 
 
 @dataclass
 class Company:
     name: str
-    status: Status
-    employees: List[User]
+    status: object
+    employees: List[object]
 
 
 @dataclass
 class WidgetBase:
     id: str
     weight: str
-    color: "red" | "blue"
+    color: ColorEnum
 
 
 @dataclass
 class HeavyWidget:
-    kind: WidgetKind.HEAVY
+    kind: object
 
 
 @dataclass
 class LightWidget:
-    kind: WidgetKind.LIGHT
+    kind: object
 
 
 @dataclass

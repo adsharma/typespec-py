@@ -50,6 +50,7 @@ class TypeSpecParser:
 
     def __init__(self):
         self.definitions: Dict[str, TypeSpecDefinition] = {}
+        self.synthetic_enums: Dict[str, List[str]] = {}  # For string literal unions
 
     @staticmethod
     def _normalize_enum_member(value: str) -> str:
@@ -71,31 +72,43 @@ class TypeSpecParser:
         self, typespec_content: str
     ) -> Dict[str, TypeSpecDefinition]:
         """Parse TypeSpec content using our parsimonious parser."""
-        # Parse the content using our parsimonious parser
         parsimonious_definitions = parsimonious_parse(typespec_content)
 
-        # Convert parsimonious definitions to our format
         self.definitions = {}
+        self.synthetic_enums = {}
         for name, parsimonious_def in parsimonious_definitions.items():
-            # Convert the definition type
             if parsimonious_def.type.name == "ENUM":
                 definition_type = TypeSpecType.ENUM
             else:
                 definition_type = TypeSpecType.OBJECT
 
-            # Create our definition
             definition = TypeSpecDefinition(
                 name=name, type=definition_type, fields=[], values=[]
             )
 
-            # Copy fields or values
             if parsimonious_def.type.name == "ENUM":
                 definition.values = parsimonious_def.values
             else:
-                definition.fields = parsimonious_def.fields
+                # Scan fields for union of string literals
+                new_fields = []
+                for field_obj in parsimonious_def.fields:
+                    if (
+                        hasattr(field_obj, "type")
+                        and isinstance(field_obj.type, str)
+                        and "|" in field_obj.type
+                    ):
+                        # Check if all union members are string literals
+                        members = [m.strip() for m in field_obj.type.split("|")]
+                        if all(m.startswith('"') and m.endswith('"') for m in members):
+                            enum_name = f"{field_obj.name.capitalize()}Enum"
+                            enum_values = [m.strip('"') for m in members]
+                            self.synthetic_enums[enum_name] = enum_values
+                            field_obj.reference = enum_name
+                            field_obj.type = "enum"
+                    new_fields.append(field_obj)
+                definition.fields = new_fields
 
             self.definitions[name] = definition
-
         return self.definitions
 
     def _parse_with_lines(self, typespec_content: str) -> Dict[str, TypeSpecDefinition]:
@@ -336,6 +349,14 @@ class TypeSpecParser:
             "",
         ]
 
+        # Generate synthetic enums for string literal unions
+        for enum_name, enum_values in self.synthetic_enums.items():
+            result.append(f"class {enum_name}(Enum):")
+            for value in enum_values:
+                member = self._normalize_enum_member(value)
+                result.append(f"    {member} = '{value}'")
+            result.append("")
+
         # Generate enums first
         for name, definition in self.definitions.items():
             if definition.type == TypeSpecType.ENUM:
@@ -378,35 +399,35 @@ class TypeSpecParser:
 
     def _generate_field(self, field: TypeSpecField) -> str:
         """Generate a dataclass field."""
-
-        # Determine Python type
-        def is_union_type(type_str):
-            return "|" in type_str
-
-        # Map union types to str
-        if is_union_type(field.type):
-            base_type = "str"
+        # Use synthetic enum if reference is set
+        if field.reference and field.type == "enum":
+            python_type = field.reference
         else:
-            base_type = self._map_type(field.type)
 
-        if field.is_array:
-            if field.reference:
-                python_type = f"List[{field.reference}]"
-            else:
-                python_type = f"List[{base_type}]"
-        elif field.is_optional or (
-            isinstance(field.type, str) and field.type.endswith("?")
-        ):
-            if field.reference:
-                python_type = f"Optional[{field.reference}]"
-            else:
-                python_type = f"Optional[{base_type}]"
-        else:
-            if field.reference:
-                python_type = field.reference
-            else:
-                python_type = base_type
+            def is_union_type(type_str):
+                return "|" in type_str
 
+            if is_union_type(field.type):
+                base_type = "str"
+            else:
+                base_type = self._map_type(field.type)
+            if field.is_array:
+                if field.reference and field.type == "enum":
+                    python_type = f"List[{field.reference}]"
+                else:
+                    python_type = f"List[{base_type}]"
+            elif field.is_optional or (
+                isinstance(field.type, str) and field.type.endswith("?")
+            ):
+                if field.reference and field.type == "enum":
+                    python_type = f"Optional[{field.reference}]"
+                else:
+                    python_type = f"Optional[{base_type}]"
+            else:
+                if field.reference and field.type == "enum":
+                    python_type = field.reference
+                else:
+                    python_type = base_type
         return f"{field.name}: {python_type}"
 
     def _map_type(self, typespec_type: str) -> str:

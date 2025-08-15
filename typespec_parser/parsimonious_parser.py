@@ -209,44 +209,41 @@ class TypeSpecVisitor(NodeVisitor):
 
     def visit_model_property(self, node, visited_children):
         """Process a model property."""
-        # Always parse the property from node.text
         text = node.text.strip()
         parts = text.split(":")
         if len(parts) >= 2:
             left_part = parts[0].strip()
             right_part = parts[1].strip().rstrip(";")
 
-            # Check for optional marker
             is_optional = left_part.endswith("?")
             if is_optional:
                 left_part = left_part[:-1].strip()
 
-            # Extract property name (skip decorators for now)
             property_name = left_part.split()[-1] if left_part else "unknown"
-
-            # Extract type
             field_type = right_part if right_part else "string"
 
-            # Check for array syntax
             is_array = field_type.endswith("[]")
             if is_array:
                 field_type = field_type[:-2]
 
-            # If type ends with '?', mark as optional and strip '?'
             if field_type.endswith("?"):
                 is_optional = True
                 field_type = field_type[:-1]
 
-            # Handle reference types
             reference = None
-            if field_type not in [
+            # If union of string literals, preserve raw type string
+            if "|" in field_type and all(
+                s.strip().startswith('"') and s.strip().endswith('"')
+                for s in field_type.split("|")
+            ):
+                pass  # keep field_type as is
+            elif field_type not in [
                 "string",
                 "integer",
                 "int32",
                 "boolean",
                 "number",
             ]:
-                # Check if this is an enum member reference like WidgetKind.Heavy
                 if "." in field_type:
                     enum_ref, member_name = field_type.split(".", 1)
                     python_member_name = self._normalize_enum_member(member_name)
