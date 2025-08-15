@@ -38,7 +38,7 @@ class User:
 @dataclass
 class Company:
     name: str
-    status: object
+    status: Status
     employees: List[object]
 
 
@@ -51,12 +51,12 @@ class WidgetBase:
 
 @dataclass
 class HeavyWidget:
-    kind: object
+    kind: WidgetKind
 
 
 @dataclass
 class LightWidget:
-    kind: object
+    kind: WidgetKind
 
 
 @dataclass

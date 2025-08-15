@@ -402,6 +402,26 @@ class TypeSpecParser:
         # Use synthetic enum if reference is set
         if field.reference and field.type == "enum":
             python_type = field.reference
+        elif (
+            field.reference
+            and field.reference in self.definitions
+            and self.definitions[field.reference].type == TypeSpecType.ENUM
+        ):
+            python_type = field.reference
+        elif (
+            field.reference
+            and isinstance(field.reference, str)
+            and "." in field.reference
+        ):
+            # Handle enum member reference like WidgetKind.Heavy
+            enum_ref = field.reference.split(".")[0]
+            if (
+                enum_ref in self.definitions
+                and self.definitions[enum_ref].type == TypeSpecType.ENUM
+            ):
+                python_type = enum_ref
+            else:
+                python_type = self._map_type(field.type)
         else:
 
             def is_union_type(type_str):
@@ -414,6 +434,25 @@ class TypeSpecParser:
             if field.is_array:
                 if field.reference and field.type == "enum":
                     python_type = f"List[{field.reference}]"
+                elif (
+                    field.reference
+                    and field.reference in self.definitions
+                    and self.definitions[field.reference].type == TypeSpecType.ENUM
+                ):
+                    python_type = f"List[{field.reference}]"
+                elif (
+                    field.reference
+                    and isinstance(field.reference, str)
+                    and "." in field.reference
+                ):
+                    enum_ref = field.reference.split(".")[0]
+                    if (
+                        enum_ref in self.definitions
+                        and self.definitions[enum_ref].type == TypeSpecType.ENUM
+                    ):
+                        python_type = f"List[{enum_ref}]"
+                    else:
+                        python_type = f"List[{base_type}]"
                 else:
                     python_type = f"List[{base_type}]"
             elif field.is_optional or (
@@ -421,11 +460,49 @@ class TypeSpecParser:
             ):
                 if field.reference and field.type == "enum":
                     python_type = f"Optional[{field.reference}]"
+                elif (
+                    field.reference
+                    and field.reference in self.definitions
+                    and self.definitions[field.reference].type == TypeSpecType.ENUM
+                ):
+                    python_type = f"Optional[{field.reference}]"
+                elif (
+                    field.reference
+                    and isinstance(field.reference, str)
+                    and "." in field.reference
+                ):
+                    enum_ref = field.reference.split(".")[0]
+                    if (
+                        enum_ref in self.definitions
+                        and self.definitions[enum_ref].type == TypeSpecType.ENUM
+                    ):
+                        python_type = f"Optional[{enum_ref}]"
+                    else:
+                        python_type = f"Optional[{base_type}]"
                 else:
                     python_type = f"Optional[{base_type}]"
             else:
                 if field.reference and field.type == "enum":
                     python_type = field.reference
+                elif (
+                    field.reference
+                    and field.reference in self.definitions
+                    and self.definitions[field.reference].type == TypeSpecType.ENUM
+                ):
+                    python_type = field.reference
+                elif (
+                    field.reference
+                    and isinstance(field.reference, str)
+                    and "." in field.reference
+                ):
+                    enum_ref = field.reference.split(".")[0]
+                    if (
+                        enum_ref in self.definitions
+                        and self.definitions[enum_ref].type == TypeSpecType.ENUM
+                    ):
+                        python_type = enum_ref
+                    else:
+                        python_type = base_type
                 else:
                     python_type = base_type
         return f"{field.name}: {python_type}"
