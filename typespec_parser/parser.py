@@ -399,113 +399,54 @@ class TypeSpecParser:
 
     def _generate_field(self, field: TypeSpecField) -> str:
         """Generate a dataclass field."""
+        # Determine the base Python type
+        python_type = self._determine_python_type(field)
+
+        # Apply container types (List, Optional) as needed
+        if field.is_array:
+            python_type = f"List[{python_type}]"
+        elif field.is_optional or (
+            isinstance(field.type, str) and field.type.endswith("?")
+        ):
+            python_type = f"Optional[{python_type}]"
+
+        return f"{field.name}: {python_type}"
+
+    def _determine_python_type(self, field: TypeSpecField) -> str:
+        """Determine the base Python type for a field."""
         # Use synthetic enum if reference is set
         if field.reference and field.type == "enum":
-            python_type = field.reference
-        elif (
+            return field.reference
+
+        # Check for direct enum reference
+        if (
             field.reference
             and field.reference in self.definitions
             and self.definitions[field.reference].type == TypeSpecType.ENUM
         ):
-            python_type = field.reference
-        elif (
+            return field.reference
+
+        # Handle enum member reference like WidgetKind.Heavy
+        if (
             field.reference
             and isinstance(field.reference, str)
             and "." in field.reference
         ):
-            # Handle enum member reference like WidgetKind.Heavy
             enum_ref = field.reference.split(".")[0]
             if (
                 enum_ref in self.definitions
                 and self.definitions[enum_ref].type == TypeSpecType.ENUM
             ):
-                python_type = enum_ref
+                return enum_ref
             else:
-                python_type = self._map_type(field.type)
-        else:
+                return self._map_type(field.type)
 
-            def is_union_type(type_str):
-                return "|" in type_str
+        # Handle union types
+        if "|" in field.type:
+            return "str"  # Union of string literals
 
-            if is_union_type(field.type):
-                base_type = "str"
-            else:
-                base_type = self._map_type(field.type)
-            if field.is_array:
-                if field.reference and field.type == "enum":
-                    python_type = f"List[{field.reference}]"
-                elif (
-                    field.reference
-                    and field.reference in self.definitions
-                    and self.definitions[field.reference].type == TypeSpecType.ENUM
-                ):
-                    python_type = f"List[{field.reference}]"
-                elif (
-                    field.reference
-                    and isinstance(field.reference, str)
-                    and "." in field.reference
-                ):
-                    enum_ref = field.reference.split(".")[0]
-                    if (
-                        enum_ref in self.definitions
-                        and self.definitions[enum_ref].type == TypeSpecType.ENUM
-                    ):
-                        python_type = f"List[{enum_ref}]"
-                    else:
-                        python_type = f"List[{base_type}]"
-                else:
-                    python_type = f"List[{base_type}]"
-            elif field.is_optional or (
-                isinstance(field.type, str) and field.type.endswith("?")
-            ):
-                if field.reference and field.type == "enum":
-                    python_type = f"Optional[{field.reference}]"
-                elif (
-                    field.reference
-                    and field.reference in self.definitions
-                    and self.definitions[field.reference].type == TypeSpecType.ENUM
-                ):
-                    python_type = f"Optional[{field.reference}]"
-                elif (
-                    field.reference
-                    and isinstance(field.reference, str)
-                    and "." in field.reference
-                ):
-                    enum_ref = field.reference.split(".")[0]
-                    if (
-                        enum_ref in self.definitions
-                        and self.definitions[enum_ref].type == TypeSpecType.ENUM
-                    ):
-                        python_type = f"Optional[{enum_ref}]"
-                    else:
-                        python_type = f"Optional[{base_type}]"
-                else:
-                    python_type = f"Optional[{base_type}]"
-            else:
-                if field.reference and field.type == "enum":
-                    python_type = field.reference
-                elif (
-                    field.reference
-                    and field.reference in self.definitions
-                    and self.definitions[field.reference].type == TypeSpecType.ENUM
-                ):
-                    python_type = field.reference
-                elif (
-                    field.reference
-                    and isinstance(field.reference, str)
-                    and "." in field.reference
-                ):
-                    enum_ref = field.reference.split(".")[0]
-                    if (
-                        enum_ref in self.definitions
-                        and self.definitions[enum_ref].type == TypeSpecType.ENUM
-                    ):
-                        python_type = enum_ref
-                    else:
-                        python_type = base_type
-                else:
-                    python_type = base_type
-        return f"{field.name}: {python_type}"
+        # Default case - map the base type
+        return self._map_type(field.type)
 
     def _map_type(self, typespec_type: str) -> str:
         """Map TypeSpec types to Python types."""
