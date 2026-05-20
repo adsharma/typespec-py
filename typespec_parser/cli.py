@@ -23,7 +23,7 @@ def main():
     parser.add_argument(
         "--language",
         default="python",
-        choices=["python", "cpp"],
+        choices=["python", "cpp", "rust", "go", "golang", "zig", "v", "vlang"],
         help="Output language (default: python)",
     )
     parser.add_argument(
@@ -49,9 +49,17 @@ def main():
     ts_parser = TypeSpecParser()
     ts_parser.parse(content)
     if args.language == "python":
-        output = ts_parser.generate_dataclasses()
+        output = ts_parser.generate_python()
     elif args.language == "cpp":
         output = ts_parser.generate_cpp_headers()
+    elif args.language == "rust":
+        output = ts_parser.generate_rust()
+    elif args.language in {"go", "golang"}:
+        output = ts_parser.generate_go()
+    elif args.language == "zig":
+        output = ts_parser.generate_zig()
+    elif args.language in {"v", "vlang"}:
+        output = ts_parser.generate_vlang()
     else:
         raise ValueError(f"Unsupported language: {args.language}")
 
@@ -79,7 +87,7 @@ def main():
         try:
             with open(args.output, "w") as f:
                 f.write(output)
-            print(f"Generated dataclasses written to '{args.output}'")
+            print(f"Generated {args.language} code written to '{args.output}'")
         except Exception as e:
             print(f"Error writing to file '{args.output}': {e}", file=sys.stderr)
             sys.exit(1)

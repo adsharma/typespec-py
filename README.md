@@ -1,11 +1,16 @@
 # TypeSpec Parser for Python
 
-A Python library that parses TypeSpec definitions and generates Python dataclasses.
+A Python library that parses TypeSpec definitions and generates idiomatic data models for Python, C++, Rust, Go, Zig, and V.
 
 ## Features
 
 - Parse TypeSpec model definitions
 - Generate Python dataclasses with type hints
+- Generate C++ headers
+- Generate Rust structs and enums
+- Generate Go structs, string enum aliases, constants, and JSON tags
+- Generate Zig structs and enums
+- Generate V structs and enums
 - Support for enums
 - Support for 1:1 and 1:n relationships
 - Command-line interface
@@ -30,10 +35,16 @@ uvx tsc-py schema.tsp
 
 ```bash
 # Parse a TypeSpec file and output to stdout
-typespec-parser schema.tsp
+tsc-py schema.tsp
 
 # Parse a TypeSpec file and save to a Python file
-typespec-parser schema.tsp -o models.py
+tsc-py schema.tsp -o models.py
+
+# Generate other languages
+tsc-py schema.tsp --language rust -o models.rs
+tsc-py schema.tsp --language go -o models.go
+tsc-py schema.tsp --language zig -o models.zig
+tsc-py schema.tsp --language vlang -o models.v
 ```
 
 ### Python API
@@ -56,8 +67,14 @@ enum Status {
 """)
 
 # Generate Python dataclasses
-code = parser.generate_dataclasses()
+code = parser.generate_python()
 print(code)
+
+# Generate Rust, Go, Zig, or V
+rust_code = parser.generate_rust()
+go_code = parser.generate_go(package_name="models")
+zig_code = parser.generate_zig()
+v_code = parser.generate_vlang(module_name="models")
 ```
 
 ## Example
@@ -108,6 +125,77 @@ class User:
     email: Optional[str]
     addresses: List[Address]
 ```
+
+It can also generate idiomatic models for other languages:
+
+```rust
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Status {
+    Active,
+    Inactive,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct User {
+    pub name: String,
+    pub age: i32,
+    pub email: Option<String>,
+    pub addresses: Vec<Address>,
+}
+```
+
+```go
+package typespec
+
+type Status string
+
+const (
+    StatusActive Status = "active"
+    StatusInactive Status = "inactive"
+)
+
+type User struct {
+    Name string `json:"name"`
+    Age int `json:"age"`
+    Email *string `json:"email"`
+    Addresses []Address `json:"addresses"`
+}
+```
+
+```zig
+const std = @import("std");
+
+pub const Status = enum {
+    active,
+    inactive,
+};
+
+pub const User = struct {
+    name: []const u8,
+    age: i32,
+    email: ?[]const u8,
+    addresses: []Address,
+};
+```
+
+```v
+module typespec
+
+pub enum Status {
+    active
+    inactive
+}
+
+pub struct User {
+pub:
+    name string
+    age int
+    email ?string
+    addresses []Address
+}
+```
+
+See [Code Generation](docs/code-generation.md) for language-specific notes.
 
 ## Development
 

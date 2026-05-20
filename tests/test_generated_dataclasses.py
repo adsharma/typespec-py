@@ -33,7 +33,7 @@ class TestGeneratedDataclasses(unittest.TestCase):
         # Parse and generate dataclasses
         parser = TypeSpecParser()
         parser.parse(typespec)
-        code = parser.generate_dataclasses()
+        code = parser.generate_python()
 
         # Execute the generated code in a separate namespace
         namespace = {}

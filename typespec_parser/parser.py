@@ -1,5 +1,6 @@
 """TypeSpec parser that generates Python dataclasses using parsimonious."""
 
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -61,6 +62,26 @@ class TypeSpecParser:
     with open(cpp_template_path) as f:
         CPP_TEMPLATE = Template(f.read())
 
+    # Load Rust template
+    rust_template_path = Path(__file__).parent.parent / "templates" / "rust.j2"
+    with open(rust_template_path) as f:
+        RUST_TEMPLATE = Template(f.read())
+
+    # Load Go template
+    go_template_path = Path(__file__).parent.parent / "templates" / "go.j2"
+    with open(go_template_path) as f:
+        GO_TEMPLATE = Template(f.read())
+
+    # Load Zig template
+    zig_template_path = Path(__file__).parent.parent / "templates" / "zig.j2"
+    with open(zig_template_path) as f:
+        ZIG_TEMPLATE = Template(f.read())
+
+    # Load V template
+    vlang_template_path = Path(__file__).parent.parent / "templates" / "vlang.j2"
+    with open(vlang_template_path) as f:
+        VLANG_TEMPLATE = Template(f.read())
+
     def __init__(self):
         self.definitions: Dict[str, TypeSpecDefinition] = {}
         self.synthetic_enums: Dict[str, List[str]] = {}  # For string literal unions
@@ -69,6 +90,92 @@ class TypeSpecParser:
     def _normalize_enum_member(value: str) -> str:
         """Convert enum member name to uppercase Python enum format."""
         return value.upper().replace("-", "_").replace(" ", "_")
+
+    @staticmethod
+    def _split_identifier(value: str) -> List[str]:
+        """Split a TypeSpec identifier or string literal into word parts."""
+        value = value.strip().strip('"').strip("'")
+        value = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", value)
+        return [part for part in re.split(r"[^0-9A-Za-z]+|\s+", value) if part]
+
+    @classmethod
+    def _to_pascal_case(cls, value: str) -> str:
+        """Convert an identifier to PascalCase."""
+        parts = cls._split_identifier(value)
+        if not parts:
+            return "Value"
+        result = "".join(part[:1].upper() + part[1:] for part in parts)
+        if result[0].isdigit():
+            result = f"Value{result}"
+        return result
+
+    @classmethod
+    def _to_snake_case(cls, value: str) -> str:
+        """Convert an identifier to snake_case."""
+        parts = cls._split_identifier(value)
+        if not parts:
+            return "value"
+        result = "_".join(part.lower() for part in parts)
+        if result[0].isdigit():
+            result = f"value_{result}"
+        return result
+
+    @classmethod
+    def _to_zig_identifier(cls, value: str) -> str:
+        """Convert a value to a Zig enum field identifier."""
+        snake = cls._to_snake_case(value)
+        zig_keywords = {
+            "align",
+            "allowzero",
+            "and",
+            "anyframe",
+            "anytype",
+            "asm",
+            "async",
+            "await",
+            "break",
+            "catch",
+            "comptime",
+            "const",
+            "continue",
+            "defer",
+            "else",
+            "enum",
+            "errdefer",
+            "error",
+            "export",
+            "extern",
+            "fn",
+            "for",
+            "if",
+            "inline",
+            "noalias",
+            "noinline",
+            "nosuspend",
+            "opaque",
+            "or",
+            "orelse",
+            "packed",
+            "pub",
+            "resume",
+            "return",
+            "linksection",
+            "struct",
+            "suspend",
+            "switch",
+            "test",
+            "threadlocal",
+            "try",
+            "union",
+            "unreachable",
+            "usingnamespace",
+            "var",
+            "volatile",
+            "while",
+        }
+        if snake in zig_keywords:
+            return f'@"{snake}"'
+        return snake
 
     def parse(self, typespec_content: str) -> Dict[str, TypeSpecDefinition]:
         """Parse TypeSpec content and return definitions."""
@@ -349,7 +456,7 @@ class TypeSpecParser:
             reference=reference,
         )
 
-    def generate_dataclasses(self) -> str:
+    def generate_python(self) -> str:
         """Generate Python dataclasses from parsed definitions."""
         if not self.definitions:
             return ""
@@ -428,6 +535,125 @@ class TypeSpecParser:
             enums=enums,
             dataclasses=dataclasses,
         )
+
+    def generate_rust(self) -> str:
+        """Generate idiomatic Rust structs and enums from parsed definitions."""
+        if not self.definitions:
+            return ""
+
+        enums = self._prepare_enum_data(self._to_pascal_case)
+        structs = []
+        for name, definition in self.definitions.items():
+            if definition.type == TypeSpecType.OBJECT:
+                field_lines = [
+                    self._generate_rust_field(field) for field in definition.fields
+                ]
+                structs.append({"name": name, "fields": field_lines})
+
+        return self.RUST_TEMPLATE.render(enums=enums, structs=structs)
+
+    def generate_go(self, package_name: str = "typespec") -> str:
+        """Generate idiomatic Go structs, aliases, and constants."""
+        if not self.definitions:
+            return ""
+
+        enums = self._prepare_go_enum_data()
+        structs = []
+        for name, definition in self.definitions.items():
+            if definition.type == TypeSpecType.OBJECT:
+                fields = [self._generate_go_field(field) for field in definition.fields]
+                structs.append({"name": name, "fields": fields})
+
+        return self.GO_TEMPLATE.render(
+            package_name=package_name,
+            enums=enums,
+            structs=structs,
+        )
+
+    def generate_zig(self) -> str:
+        """Generate idiomatic Zig structs and enums from parsed definitions."""
+        if not self.definitions:
+            return ""
+
+        enums = self._prepare_enum_data(self._to_zig_identifier)
+        structs = []
+        for name, definition in self.definitions.items():
+            if definition.type == TypeSpecType.OBJECT:
+                field_lines = [
+                    self._generate_zig_field(field) for field in definition.fields
+                ]
+                structs.append({"name": name, "fields": field_lines})
+
+        return self.ZIG_TEMPLATE.render(enums=enums, structs=structs)
+
+    def generate_vlang(self, module_name: str = "typespec") -> str:
+        """Generate idiomatic V structs and enums from parsed definitions."""
+        if not self.definitions:
+            return ""
+
+        enums = self._prepare_enum_data(self._to_snake_case)
+        structs = []
+        for name, definition in self.definitions.items():
+            if definition.type == TypeSpecType.OBJECT:
+                field_lines = [
+                    self._generate_vlang_field(field) for field in definition.fields
+                ]
+                structs.append({"name": name, "fields": field_lines})
+
+        return self.VLANG_TEMPLATE.render(
+            module_name=module_name,
+            enums=enums,
+            structs=structs,
+        )
+
+    def _prepare_enum_data(self, normalizer) -> Dict[str, Dict[str, List[str]]]:
+        """Prepare normal enum and synthetic string-union enum data."""
+        enums = {}
+        for enum_name, values in self.synthetic_enums.items():
+            enums[enum_name] = {
+                "values": list(zip([normalizer(v) for v in values], values))
+            }
+
+        for name, definition in self.definitions.items():
+            if definition.type == TypeSpecType.ENUM:
+                enums[name] = {
+                    "values": list(
+                        zip(
+                            [normalizer(v) for v in definition.values],
+                            definition.values,
+                        )
+                    )
+                }
+
+        return enums
+
+    def _prepare_go_enum_data(self) -> Dict[str, Dict[str, List[Dict[str, str]]]]:
+        """Prepare Go enum aliases and constants."""
+        enums = {}
+        for enum_name, values in self.synthetic_enums.items():
+            enums[enum_name] = {
+                "values": [
+                    {
+                        "const_name": f"{enum_name}{self._to_pascal_case(value)}",
+                        "value": value,
+                    }
+                    for value in values
+                ]
+            }
+
+        for name, definition in self.definitions.items():
+            if definition.type == TypeSpecType.ENUM:
+                enums[name] = {
+                    "values": [
+                        {
+                            "const_name": f"{name}{self._to_pascal_case(value)}",
+                            "value": value,
+                        }
+                        for value in definition.values
+                    ]
+                }
+
+        return enums
 
     def _generate_field(self, field: TypeSpecField) -> str:
         """Generate a dataclass field."""
@@ -537,6 +763,182 @@ class TypeSpecParser:
         # Default case - map the base type
         return self._map_cpp_type(field.type)
 
+    def _generate_rust_field(self, field: TypeSpecField) -> str:
+        """Generate a Rust struct field."""
+        rust_type = self._determine_rust_type(field)
+        if field.is_array:
+            rust_type = f"Vec<{rust_type}>"
+        elif field.is_optional:
+            rust_type = f"Option<{rust_type}>"
+
+        return f"pub {self._to_snake_case(field.name)}: {rust_type}"
+
+    def _determine_rust_type(self, field: TypeSpecField) -> str:
+        """Determine the base Rust type for a field."""
+        if field.reference and field.type == "enum":
+            return field.reference
+
+        if (
+            field.reference
+            and field.reference in self.definitions
+            and self.definitions[field.reference].type == TypeSpecType.ENUM
+        ):
+            return field.reference
+
+        if (
+            field.reference
+            and isinstance(field.reference, str)
+            and "." in field.reference
+        ):
+            enum_ref = field.reference.split(".")[0]
+            if (
+                enum_ref in self.definitions
+                and self.definitions[enum_ref].type == TypeSpecType.ENUM
+            ):
+                return enum_ref
+            return self._map_rust_type(field.type)
+
+        if field.reference and field.type == "object":
+            return field.reference
+
+        if "|" in field.type:
+            return "String"
+
+        return self._map_rust_type(field.type)
+
+    def _generate_go_field(self, field: TypeSpecField) -> Dict[str, str]:
+        """Generate a Go struct field."""
+        go_type = self._determine_go_type(field)
+        if field.is_array:
+            go_type = f"[]{go_type}"
+        elif field.is_optional:
+            go_type = f"*{go_type}"
+
+        return {
+            "name": self._to_pascal_case(field.name),
+            "type": go_type,
+            "json_name": field.name,
+        }
+
+    def _determine_go_type(self, field: TypeSpecField) -> str:
+        """Determine the base Go type for a field."""
+        if field.reference and field.type == "enum":
+            return field.reference
+
+        if (
+            field.reference
+            and field.reference in self.definitions
+            and self.definitions[field.reference].type == TypeSpecType.ENUM
+        ):
+            return field.reference
+
+        if (
+            field.reference
+            and isinstance(field.reference, str)
+            and "." in field.reference
+        ):
+            enum_ref = field.reference.split(".")[0]
+            if (
+                enum_ref in self.definitions
+                and self.definitions[enum_ref].type == TypeSpecType.ENUM
+            ):
+                return enum_ref
+            return self._map_go_type(field.type)
+
+        if field.reference and field.type == "object":
+            return field.reference
+
+        if "|" in field.type:
+            return "string"
+
+        return self._map_go_type(field.type)
+
+    def _generate_zig_field(self, field: TypeSpecField) -> str:
+        """Generate a Zig struct field."""
+        zig_type = self._determine_zig_type(field)
+        if field.is_array:
+            zig_type = f"[]{zig_type}"
+        elif field.is_optional:
+            zig_type = f"?{zig_type}"
+
+        return f"{self._to_snake_case(field.name)}: {zig_type}"
+
+    def _determine_zig_type(self, field: TypeSpecField) -> str:
+        """Determine the base Zig type for a field."""
+        if field.reference and field.type == "enum":
+            return field.reference
+
+        if (
+            field.reference
+            and field.reference in self.definitions
+            and self.definitions[field.reference].type == TypeSpecType.ENUM
+        ):
+            return field.reference
+
+        if (
+            field.reference
+            and isinstance(field.reference, str)
+            and "." in field.reference
+        ):
+            enum_ref = field.reference.split(".")[0]
+            if (
+                enum_ref in self.definitions
+                and self.definitions[enum_ref].type == TypeSpecType.ENUM
+            ):
+                return enum_ref
+            return self._map_zig_type(field.type)
+
+        if field.reference and field.type == "object":
+            return field.reference
+
+        if "|" in field.type:
+            return "[]const u8"
+
+        return self._map_zig_type(field.type)
+
+    def _generate_vlang_field(self, field: TypeSpecField) -> str:
+        """Generate a V struct field."""
+        vlang_type = self._determine_vlang_type(field)
+        if field.is_array:
+            vlang_type = f"[]{vlang_type}"
+        elif field.is_optional:
+            vlang_type = f"?{vlang_type}"
+
+        return f"{self._to_snake_case(field.name)} {vlang_type}"
+
+    def _determine_vlang_type(self, field: TypeSpecField) -> str:
+        """Determine the base V type for a field."""
+        if field.reference and field.type == "enum":
+            return field.reference
+
+        if (
+            field.reference
+            and field.reference in self.definitions
+            and self.definitions[field.reference].type == TypeSpecType.ENUM
+        ):
+            return field.reference
+
+        if (
+            field.reference
+            and isinstance(field.reference, str)
+            and "." in field.reference
+        ):
+            enum_ref = field.reference.split(".")[0]
+            if (
+                enum_ref in self.definitions
+                and self.definitions[enum_ref].type == TypeSpecType.ENUM
+            ):
+                return enum_ref
+            return self._map_vlang_type(field.type)
+
+        if field.reference and field.type == "object":
+            return field.reference
+
+        if "|" in field.type:
+            return "string"
+
+        return self._map_vlang_type(field.type)
+
     def _map_cpp_type(self, typespec_type: str) -> str:
         """Map TypeSpec types to C++ types."""
         type_mapping = {
@@ -546,6 +948,46 @@ class TypeSpecParser:
             "object": "void*",  # Placeholder for unknown objects
         }
         return type_mapping.get(typespec_type, "std::string")
+
+    def _map_rust_type(self, typespec_type: str) -> str:
+        """Map TypeSpec types to Rust types."""
+        type_mapping = {
+            "string": "String",
+            "integer": "i32",
+            "boolean": "bool",
+            "object": "String",
+        }
+        return type_mapping.get(typespec_type, "String")
+
+    def _map_go_type(self, typespec_type: str) -> str:
+        """Map TypeSpec types to Go types."""
+        type_mapping = {
+            "string": "string",
+            "integer": "int",
+            "boolean": "bool",
+            "object": "any",
+        }
+        return type_mapping.get(typespec_type, "string")
+
+    def _map_zig_type(self, typespec_type: str) -> str:
+        """Map TypeSpec types to Zig types."""
+        type_mapping = {
+            "string": "[]const u8",
+            "integer": "i32",
+            "boolean": "bool",
+            "object": "std.json.Value",
+        }
+        return type_mapping.get(typespec_type, "[]const u8")
+
+    def _map_vlang_type(self, typespec_type: str) -> str:
+        """Map TypeSpec types to V types."""
+        type_mapping = {
+            "string": "string",
+            "integer": "int",
+            "boolean": "bool",
+            "object": "string",
+        }
+        return type_mapping.get(typespec_type, "string")
 
     def _map_type(self, typespec_type: str) -> str:
         """Map TypeSpec types to Python types."""

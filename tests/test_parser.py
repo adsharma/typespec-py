@@ -160,7 +160,7 @@ class TestTypeSpecParser(unittest.TestCase):
         """
 
         self.parser.parse(typespec)
-        code = self.parser.generate_dataclasses()
+        code = self.parser.generate_python()
 
         expected = """class Status(Enum):
     ACTIVE = 'active'
@@ -178,7 +178,7 @@ class TestTypeSpecParser(unittest.TestCase):
         """
 
         self.parser.parse(typespec)
-        code = self.parser.generate_dataclasses()
+        code = self.parser.generate_python()
 
         expected = """@dataclass
 class User:
@@ -197,7 +197,7 @@ class User:
         """
 
         self.parser.parse(typespec)
-        code = self.parser.generate_dataclasses()
+        code = self.parser.generate_python()
 
         expected = """@dataclass
 class User:
@@ -216,7 +216,7 @@ class User:
         """
 
         self.parser.parse(typespec)
-        code = self.parser.generate_dataclasses()
+        code = self.parser.generate_python()
 
         expected = """@dataclass
 class User:
@@ -240,7 +240,7 @@ class User:
         """
 
         self.parser.parse(typespec)
-        code = self.parser.generate_dataclasses()
+        code = self.parser.generate_python()
 
         # Check that both classes are generated
         self.assertIn("@dataclass\nclass Address:", code)
@@ -265,7 +265,7 @@ class User:
         """
 
         self.parser.parse(typespec)
-        code = self.parser.generate_dataclasses()
+        code = self.parser.generate_python()
 
         # Check 1:n relationship
         expected = "addresses: List[Address]"
