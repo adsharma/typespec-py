@@ -3,7 +3,7 @@
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from pathlib import Path
+from importlib import resources
 from typing import Dict, List, Optional
 
 from jinja2 import Template
@@ -52,35 +52,15 @@ class TypeSpecDefinition:
 class TypeSpecParser:
     """Parses TypeSpec definitions and generates Python dataclasses."""
 
-    # Load Jinja template
-    template_path = Path(__file__).parent.parent / "templates" / "py-dataclasses.j2"
-    with open(template_path) as f:
-        FILE_TEMPLATE = Template(f.read())
-
-    # Load C++ template
-    cpp_template_path = Path(__file__).parent.parent / "templates" / "cpp-headers.j2"
-    with open(cpp_template_path) as f:
-        CPP_TEMPLATE = Template(f.read())
-
-    # Load Rust template
-    rust_template_path = Path(__file__).parent.parent / "templates" / "rust.j2"
-    with open(rust_template_path) as f:
-        RUST_TEMPLATE = Template(f.read())
-
-    # Load Go template
-    go_template_path = Path(__file__).parent.parent / "templates" / "go.j2"
-    with open(go_template_path) as f:
-        GO_TEMPLATE = Template(f.read())
-
-    # Load Zig template
-    zig_template_path = Path(__file__).parent.parent / "templates" / "zig.j2"
-    with open(zig_template_path) as f:
-        ZIG_TEMPLATE = Template(f.read())
-
-    # Load V template
-    vlang_template_path = Path(__file__).parent.parent / "templates" / "vlang.j2"
-    with open(vlang_template_path) as f:
-        VLANG_TEMPLATE = Template(f.read())
+    @staticmethod
+    def _load_builtin_template(name: str) -> Template:
+        """Load a bundled template from package data."""
+        template_text = (
+            resources.files("typespec_parser")
+            .joinpath("templates", name)
+            .read_text(encoding="utf-8")
+        )
+        return Template(template_text)
 
     def __init__(self):
         self.definitions: Dict[str, TypeSpecDefinition] = {}
@@ -93,15 +73,16 @@ class TypeSpecParser:
 
     @staticmethod
     def _render_template(
-        default_template: Template,
+        default_template_name: str,
         template_path: Optional[str] = None,
         **context,
     ) -> str:
         """Render the default template or an override template path."""
-        template = default_template
         if template_path:
-            with open(template_path) as f:
+            with open(template_path, encoding="utf-8") as f:
                 template = Template(f.read())
+        else:
+            template = TypeSpecParser._load_builtin_template(default_template_name)
         return template.render(**context)
 
     @staticmethod
@@ -503,7 +484,7 @@ class TypeSpecParser:
                 dataclasses.append({"name": name, "fields": field_lines})
 
         return self._render_template(
-            self.FILE_TEMPLATE,
+            "py-dataclasses.j2",
             template_path,
             synthetic_enums=synthetic_enums,
             enums=enums,
@@ -544,7 +525,7 @@ class TypeSpecParser:
                 dataclasses.append({"name": name, "fields": field_lines})
 
         return self._render_template(
-            self.CPP_TEMPLATE,
+            "cpp-headers.j2",
             template_path,
             synthetic_enums=synthetic_enums,
             enums=enums,
@@ -566,7 +547,7 @@ class TypeSpecParser:
                 structs.append({"name": name, "fields": field_lines})
 
         return self._render_template(
-            self.RUST_TEMPLATE,
+            "rust.j2",
             template_path,
             enums=enums,
             structs=structs,
@@ -589,7 +570,7 @@ class TypeSpecParser:
                 structs.append({"name": name, "fields": fields})
 
         return self._render_template(
-            self.GO_TEMPLATE,
+            "go.j2",
             template_path,
             package_name=package_name,
             enums=enums,
@@ -611,7 +592,7 @@ class TypeSpecParser:
                 structs.append({"name": name, "fields": field_lines})
 
         return self._render_template(
-            self.ZIG_TEMPLATE,
+            "zig.j2",
             template_path,
             enums=enums,
             structs=structs,
@@ -636,7 +617,7 @@ class TypeSpecParser:
                 structs.append({"name": name, "fields": field_lines})
 
         return self._render_template(
-            self.VLANG_TEMPLATE,
+            "vlang.j2",
             template_path,
             module_name=module_name,
             enums=enums,

@@ -10,6 +10,22 @@ import unittest
 class TestCli(unittest.TestCase):
     """Test command-line generation behavior."""
 
+    def test_version_argument_does_not_require_input_or_templates(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "typespec_parser.cli",
+                "--version",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("tsc-py", result.stdout)
+
     def test_custom_template_argument(self):
         typespec = """
         model User {

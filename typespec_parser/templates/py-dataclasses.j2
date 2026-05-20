@@ -1,0 +1,28 @@
+from dataclasses import dataclass
+from enum import Enum
+from typing import List, Optional
+
+{% for enum_name, values in synthetic_enums.items() %}
+class {{ enum_name }}(Enum):
+{% for normalized, original in values %}    {{ normalized }} = '{{ original }}'
+{% endfor %}
+{% endfor %}
+
+{% for name, enum_def in enums.items() %}
+class {{ name }}(Enum):
+{% if enum_def['values'] %}{% for normalized, original in enum_def['values'] %}    {{ normalized }} = '{{ original }}'
+{% endfor %}
+{% else %}
+    pass
+{% endif %}
+{% endfor %}
+
+{% for dc in dataclasses %}
+@dataclass
+class {{ dc.name }}:
+{% if dc.fields %}{% for field in dc.fields %}    {{ field }}
+{% endfor %}
+{% else %}
+    pass
+{% endif %}
+{% endfor %}

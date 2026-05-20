@@ -47,7 +47,7 @@ tsc-py = "typespec_parser.cli:main"
 exclude = ["templates"]
 
 [tool.setuptools.package-data]
-"*" = ["templates/*.j2"]
+typespec_parser = ["templates/*.j2"]
 
 [tool.isort]
 profile = "black"

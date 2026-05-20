@@ -1,0 +1,33 @@
+#ifndef TYPESPEC_GENERATED_H
+#define TYPESPEC_GENERATED_H
+
+#include <string>
+#include <vector>
+#include <optional>
+
+{% for enum_name, values in synthetic_enums.items() %}
+enum class {{ enum_name }} {
+{% for normalized, original in values %}    {{ normalized }},
+{% endfor %}
+};
+{% endfor %}
+
+{% for name, enum_def in enums.items() %}
+enum class {{ name }} {
+{% if enum_def['values'] %}{% for normalized, original in enum_def['values'] %}    {{ normalized }},
+{% endfor %}
+{% else %}
+{% endif %}
+};
+{% endfor %}
+
+{% for dc in dataclasses %}
+struct {{ dc.name }} {
+{% if dc.fields %}{% for field in dc.fields %}    {{ field }};
+{% endfor %}
+{% else %}
+{% endif %}
+};
+{% endfor %}
+
+#endif // TYPESPEC_GENERATED_H
