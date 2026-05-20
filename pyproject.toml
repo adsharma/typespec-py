@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tsc-py"
-version = "0.1.3"
+version = "0.1.4"
 description = "A TypeSpec parser that generates Python dataclasses"
 readme = "README.md"
 authors = [{name = "Arun Sharma", email = "arun@sharma-home.net"}]
