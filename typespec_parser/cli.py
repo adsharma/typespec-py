@@ -31,6 +31,10 @@ def main():
         action="store_true",
         help="Skip formatting the output with black (Python only)",
     )
+    parser.add_argument(
+        "--template",
+        help="Path to a custom Jinja template for the selected language",
+    )
 
     args = parser.parse_args()
 
@@ -49,17 +53,17 @@ def main():
     ts_parser = TypeSpecParser()
     ts_parser.parse(content)
     if args.language == "python":
-        output = ts_parser.generate_python()
+        output = ts_parser.generate_python(template_path=args.template)
     elif args.language == "cpp":
-        output = ts_parser.generate_cpp_headers()
+        output = ts_parser.generate_cpp_headers(template_path=args.template)
     elif args.language == "rust":
-        output = ts_parser.generate_rust()
+        output = ts_parser.generate_rust(template_path=args.template)
     elif args.language in {"go", "golang"}:
-        output = ts_parser.generate_go()
+        output = ts_parser.generate_go(template_path=args.template)
     elif args.language == "zig":
-        output = ts_parser.generate_zig()
+        output = ts_parser.generate_zig(template_path=args.template)
     elif args.language in {"v", "vlang"}:
-        output = ts_parser.generate_vlang()
+        output = ts_parser.generate_vlang(template_path=args.template)
     else:
         raise ValueError(f"Unsupported language: {args.language}")
 

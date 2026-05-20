@@ -45,6 +45,9 @@ tsc-py schema.tsp --language rust -o models.rs
 tsc-py schema.tsp --language go -o models.go
 tsc-py schema.tsp --language zig -o models.zig
 tsc-py schema.tsp --language vlang -o models.v
+
+# Use a custom Jinja template for the selected language
+tsc-py schema.tsp --language rust --template custom-rust.j2 -o models.rs
 ```
 
 ### Python API
@@ -75,6 +78,9 @@ rust_code = parser.generate_rust()
 go_code = parser.generate_go(package_name="models")
 zig_code = parser.generate_zig()
 v_code = parser.generate_vlang(module_name="models")
+
+# Override the built-in Jinja template
+custom_rust = parser.generate_rust(template_path="custom-rust.j2")
 ```
 
 ## Example
@@ -195,7 +201,7 @@ pub:
 }
 ```
 
-See [Code Generation](docs/code-generation.md) for language-specific notes.
+See [Code Generation](docs/code-generation.md) for language-specific notes and custom template context.
 
 ## Development
 

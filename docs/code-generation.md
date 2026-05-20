@@ -44,6 +44,12 @@ tsc-py schema.tsp --language vlang -o models.v
 
 `v` is accepted as an alias for `vlang`.
 
+Use a custom Jinja template for the selected language:
+
+```bash
+tsc-py schema.tsp --language rust --template custom-rust.j2 -o models.rs
+```
+
 ## Python API
 
 ```python
@@ -58,6 +64,9 @@ rust_code = parser.generate_rust()
 go_code = parser.generate_go(package_name="models")
 zig_code = parser.generate_zig()
 v_code = parser.generate_vlang(module_name="models")
+
+custom_python = parser.generate_python(template_path="custom-python.j2")
+custom_rust = parser.generate_rust(template_path="custom-rust.j2")
 ```
 
 ## Language Notes
@@ -79,3 +88,26 @@ V output uses `module`, `pub struct`, and `pub enum`. Optional fields become `?T
 | `boolean` | `bool` | `bool` | `bool` | `bool` |
 | `T?` | `Option<T>` | `*T` | `?T` | `?T` |
 | `T[]` | `Vec<T>` | `[]T` | `[]T` | `[]T` |
+
+## Custom Templates
+
+`--template` replaces only the final Jinja template. Parsing, naming, and type mapping still come from the selected `--language`.
+
+Python and C++ templates receive:
+
+| Name | Description |
+| --- | --- |
+| `synthetic_enums` | String-literal union enums keyed by generated enum name |
+| `enums` | TypeSpec enums keyed by enum name |
+| `dataclasses` | Object definitions with `name` and rendered `fields` |
+
+Rust and Zig templates receive:
+
+| Name | Description |
+| --- | --- |
+| `enums` | TypeSpec and synthetic enums keyed by enum name |
+| `structs` | Object definitions with `name` and rendered `fields` |
+
+Go templates receive `package_name`, `enums`, and `structs`. Go struct fields include `name`, `type`, and `json_name`.
+
+V templates receive `module_name`, `enums`, and `structs`.

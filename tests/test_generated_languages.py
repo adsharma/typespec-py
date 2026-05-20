@@ -1,5 +1,7 @@
 """Tests for generated Rust, Go, Zig, and V code."""
 
+import os
+import tempfile
 import unittest
 
 from typespec_parser.parser import TypeSpecParser
@@ -79,6 +81,34 @@ class TestGeneratedLanguages(unittest.TestCase):
         self.assertIn("email ?string", code)
         self.assertIn("address Address", code)
         self.assertIn("tags []string", code)
+
+    def test_generate_with_custom_struct_template(self):
+        template = """{% for struct in structs %}{{ struct.name }}:{{ struct.fields|length }}\n{% endfor %}"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".j2", delete=False) as f:
+            f.write(template)
+            template_path = f.name
+
+        try:
+            code = self.parser.generate_rust(template_path=template_path)
+        finally:
+            os.unlink(template_path)
+
+        self.assertIn("Address:2", code)
+        self.assertIn("User:5", code)
+
+    def test_generate_with_custom_python_template(self):
+        template = """{% for dc in dataclasses %}{{ dc.name }}:{{ dc.fields|length }}\n{% endfor %}"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".j2", delete=False) as f:
+            f.write(template)
+            template_path = f.name
+
+        try:
+            code = self.parser.generate_python(template_path=template_path)
+        finally:
+            os.unlink(template_path)
+
+        self.assertIn("Address:2", code)
+        self.assertIn("User:5", code)
 
 
 if __name__ == "__main__":

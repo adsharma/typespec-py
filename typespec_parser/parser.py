@@ -92,6 +92,19 @@ class TypeSpecParser:
         return value.upper().replace("-", "_").replace(" ", "_")
 
     @staticmethod
+    def _render_template(
+        default_template: Template,
+        template_path: Optional[str] = None,
+        **context,
+    ) -> str:
+        """Render the default template or an override template path."""
+        template = default_template
+        if template_path:
+            with open(template_path) as f:
+                template = Template(f.read())
+        return template.render(**context)
+
+    @staticmethod
     def _split_identifier(value: str) -> List[str]:
         """Split a TypeSpec identifier or string literal into word parts."""
         value = value.strip().strip('"').strip("'")
@@ -456,7 +469,7 @@ class TypeSpecParser:
             reference=reference,
         )
 
-    def generate_python(self) -> str:
+    def generate_python(self, template_path: Optional[str] = None) -> str:
         """Generate Python dataclasses from parsed definitions."""
         if not self.definitions:
             return ""
@@ -489,14 +502,15 @@ class TypeSpecParser:
                 ]
                 dataclasses.append({"name": name, "fields": field_lines})
 
-        # Render the full file
-        return self.FILE_TEMPLATE.render(
+        return self._render_template(
+            self.FILE_TEMPLATE,
+            template_path,
             synthetic_enums=synthetic_enums,
             enums=enums,
             dataclasses=dataclasses,
         )
 
-    def generate_cpp_headers(self) -> str:
+    def generate_cpp_headers(self, template_path: Optional[str] = None) -> str:
         """Generate C++ headers from parsed definitions."""
         if not self.definitions:
             return ""
@@ -529,14 +543,15 @@ class TypeSpecParser:
                 ]
                 dataclasses.append({"name": name, "fields": field_lines})
 
-        # Render the full file
-        return self.CPP_TEMPLATE.render(
+        return self._render_template(
+            self.CPP_TEMPLATE,
+            template_path,
             synthetic_enums=synthetic_enums,
             enums=enums,
             dataclasses=dataclasses,
         )
 
-    def generate_rust(self) -> str:
+    def generate_rust(self, template_path: Optional[str] = None) -> str:
         """Generate idiomatic Rust structs and enums from parsed definitions."""
         if not self.definitions:
             return ""
@@ -550,9 +565,18 @@ class TypeSpecParser:
                 ]
                 structs.append({"name": name, "fields": field_lines})
 
-        return self.RUST_TEMPLATE.render(enums=enums, structs=structs)
+        return self._render_template(
+            self.RUST_TEMPLATE,
+            template_path,
+            enums=enums,
+            structs=structs,
+        )
 
-    def generate_go(self, package_name: str = "typespec") -> str:
+    def generate_go(
+        self,
+        package_name: str = "typespec",
+        template_path: Optional[str] = None,
+    ) -> str:
         """Generate idiomatic Go structs, aliases, and constants."""
         if not self.definitions:
             return ""
@@ -564,13 +588,15 @@ class TypeSpecParser:
                 fields = [self._generate_go_field(field) for field in definition.fields]
                 structs.append({"name": name, "fields": fields})
 
-        return self.GO_TEMPLATE.render(
+        return self._render_template(
+            self.GO_TEMPLATE,
+            template_path,
             package_name=package_name,
             enums=enums,
             structs=structs,
         )
 
-    def generate_zig(self) -> str:
+    def generate_zig(self, template_path: Optional[str] = None) -> str:
         """Generate idiomatic Zig structs and enums from parsed definitions."""
         if not self.definitions:
             return ""
@@ -584,9 +610,18 @@ class TypeSpecParser:
                 ]
                 structs.append({"name": name, "fields": field_lines})
 
-        return self.ZIG_TEMPLATE.render(enums=enums, structs=structs)
+        return self._render_template(
+            self.ZIG_TEMPLATE,
+            template_path,
+            enums=enums,
+            structs=structs,
+        )
 
-    def generate_vlang(self, module_name: str = "typespec") -> str:
+    def generate_vlang(
+        self,
+        module_name: str = "typespec",
+        template_path: Optional[str] = None,
+    ) -> str:
         """Generate idiomatic V structs and enums from parsed definitions."""
         if not self.definitions:
             return ""
@@ -600,7 +635,9 @@ class TypeSpecParser:
                 ]
                 structs.append({"name": name, "fields": field_lines})
 
-        return self.VLANG_TEMPLATE.render(
+        return self._render_template(
+            self.VLANG_TEMPLATE,
+            template_path,
             module_name=module_name,
             enums=enums,
             structs=structs,
