@@ -3,4 +3,4 @@
 from .parser import TypeSpecDefinition, TypeSpecField, TypeSpecParser, TypeSpecType
 
 __all__ = ["TypeSpecParser", "TypeSpecDefinition", "TypeSpecField", "TypeSpecType"]
-__version__ = "0.1.0"
+__version__ = "0.2.0"
