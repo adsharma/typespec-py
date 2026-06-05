@@ -8,6 +8,13 @@ pub enum {{ name }} {
 }
 {% endfor %}
 
+{% for union in unions %}
+#[derive(Debug, Clone, PartialEq)]
+pub enum {{ union.name }} {
+{% for variant in union.variants %}    {{ variant.name }}({{ variant.type }}),
+{% endfor %}}
+{% endfor %}
+
 {% for struct in structs %}
 #[derive(Debug, Clone, PartialEq)]
 pub struct {{ struct.name }} {

@@ -271,6 +271,143 @@ class User:
         expected = "addresses: List[Address]"
         self.assertIn(expected, code)
 
+    def test_parse_discriminated_union_with_value_object_decorator(self):
+        """Test parsing discriminated unions with TypeSpec value object arguments."""
+        typespec = """
+        // Comments and imports should not prevent parsing declarations.
+        import "../common.tsp";
+
+        model BoundAlterInfoPayload {
+            alterType: AlterType;
+            extraInfo: AlterExtraInfo;
+        }
+
+        @discriminated(#{discriminatorPropertyName: "alterType", envelope: "none"})
+        union AlterExtraInfo {
+            addProperty: AddPropertyAlterPayload,
+            dropProperty: DropPropertyAlterPayload,
+        }
+
+        model AddPropertyAlterPayload {
+            propertyName: string;
+        }
+
+        model DropPropertyAlterPayload {
+            propertyName: string;
+        }
+        """
+
+        definitions = self.parser.parse(typespec)
+
+        self.assertIn("AlterExtraInfo", definitions)
+        union_def = definitions["AlterExtraInfo"]
+        self.assertEqual(union_def.type, TypeSpecType.UNION)
+        self.assertEqual(union_def.discriminator_property_name, "alterType")
+        self.assertEqual(union_def.envelope, "none")
+        self.assertEqual(
+            [(field.name, field.reference) for field in union_def.fields],
+            [
+                ("addProperty", "AddPropertyAlterPayload"),
+                ("dropProperty", "DropPropertyAlterPayload"),
+            ],
+        )
+
+        payload_def = definitions["BoundAlterInfoPayload"]
+        extra_info = next(f for f in payload_def.fields if f.name == "extraInfo")
+        self.assertEqual(extra_info.reference, "AlterExtraInfo")
+
+    def test_generate_discriminated_union_alias(self):
+        """Test generating a Python alias for discriminated unions."""
+        typespec = """
+        model AddPropertyAlterPayload {
+            propertyName: string;
+        }
+
+        model DropPropertyAlterPayload {
+            propertyName: string;
+        }
+
+        @discriminated(#{discriminatorPropertyName: "alterType", envelope: "none"})
+        union AlterExtraInfo {
+            addProperty: AddPropertyAlterPayload,
+            dropProperty: DropPropertyAlterPayload,
+        }
+
+        model BoundAlterInfoPayload {
+            extraInfo: AlterExtraInfo;
+        }
+        """
+
+        self.parser.parse(typespec)
+        code = self.parser.generate_python()
+
+        self.assertIn(
+            "AlterExtraInfo = Union[AddPropertyAlterPayload, DropPropertyAlterPayload]",
+            code,
+        )
+        self.assertIn("extraInfo: AlterExtraInfo", code)
+
+    def test_parse_general_decorators(self):
+        """Test parsing decorators on definitions and members."""
+        typespec = """
+        @doc("A user")
+        model User {
+            @key
+            @format("uuid")
+            id: string;
+        }
+
+        @doc("Status enum")
+        enum Status {
+            @doc("Enabled")
+            active,
+            inactive,
+        }
+
+        model Circle {
+            radius: integer;
+        }
+
+        model Square {
+            side: integer;
+        }
+
+        @doc("Shape union")
+        union Shape {
+            @doc("Circle variant")
+            circle: Circle,
+            square: Square,
+        }
+        """
+
+        definitions = self.parser.parse(typespec)
+
+        user_def = definitions["User"]
+        self.assertEqual(user_def.decorators, ["doc"])
+        self.assertEqual(user_def.decorator_arguments, {"doc": '"A user"'})
+        id_field = user_def.fields[0]
+        self.assertEqual(id_field.decorators, ["key", "format"])
+        self.assertEqual(id_field.decorator_arguments, {"format": '"uuid"'})
+
+        status_def = definitions["Status"]
+        self.assertEqual(status_def.decorators, ["doc"])
+        self.assertEqual(status_def.decorator_arguments, {"doc": '"Status enum"'})
+        self.assertEqual(status_def.value_decorators, {"active": ["doc"]})
+        self.assertEqual(
+            status_def.value_decorator_arguments,
+            {"active": {"doc": '"Enabled"'}},
+        )
+
+        shape_def = definitions["Shape"]
+        self.assertEqual(shape_def.decorators, ["doc"])
+        self.assertEqual(shape_def.decorator_arguments, {"doc": '"Shape union"'})
+        self.assertEqual(shape_def.fields[0].decorators, ["doc"])
+        self.assertEqual(
+            shape_def.fields[0].decorator_arguments,
+            {"doc": '"Circle variant"'},
+        )
+        self.assertEqual(shape_def.fields[1].decorators, [])
+
 
 if __name__ == "__main__":
     unittest.main()
