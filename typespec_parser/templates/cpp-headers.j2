@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <optional>
+#include <variant>
 
 {% for enum_name, values in synthetic_enums.items() %}
 enum class {{ enum_name }} {
@@ -28,6 +29,10 @@ struct {{ dc.name }} {
 {% else %}
 {% endif %}
 };
+{% endfor %}
+
+{% for union in unions %}
+using {{ union.name }} = std::variant<{{ union.types|join(', ') }}>;
 {% endfor %}
 
 #endif // TYPESPEC_GENERATED_H

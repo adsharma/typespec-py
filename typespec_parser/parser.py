@@ -26,6 +26,7 @@ class TypeSpecType(Enum):
     ENUM = "enum"
     OBJECT = "object"
     ARRAY = "array"
+    UNION = "union"
 
 
 @dataclass
@@ -37,6 +38,8 @@ class TypeSpecField:
     is_optional: bool = False
     is_array: bool = False
     reference: Optional[str] = None
+    decorators: List[str] = field(default_factory=list)
+    decorator_arguments: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -47,6 +50,12 @@ class TypeSpecDefinition:
     type: TypeSpecType
     fields: List[TypeSpecField] = field(default_factory=list)
     values: List[str] = field(default_factory=list)
+    decorators: List[str] = field(default_factory=list)
+    decorator_arguments: Dict[str, str] = field(default_factory=dict)
+    value_decorators: Dict[str, List[str]] = field(default_factory=dict)
+    value_decorator_arguments: Dict[str, Dict[str, str]] = field(default_factory=dict)
+    discriminator_property_name: Optional[str] = None
+    envelope: Optional[str] = None
 
 
 class TypeSpecParser:
@@ -193,15 +202,33 @@ class TypeSpecParser:
         for name, parsimonious_def in parsimonious_definitions.items():
             if parsimonious_def.type.name == "ENUM":
                 definition_type = TypeSpecType.ENUM
+            elif parsimonious_def.type.name == "UNION":
+                definition_type = TypeSpecType.UNION
             else:
                 definition_type = TypeSpecType.OBJECT
 
             definition = TypeSpecDefinition(
                 name=name, type=definition_type, fields=[], values=[]
             )
+            definition.decorators = getattr(parsimonious_def, "decorators", [])
+            definition.decorator_arguments = getattr(
+                parsimonious_def, "decorator_arguments", {}
+            )
+            definition.value_decorators = getattr(
+                parsimonious_def, "value_decorators", {}
+            )
+            definition.value_decorator_arguments = getattr(
+                parsimonious_def, "value_decorator_arguments", {}
+            )
+            definition.discriminator_property_name = getattr(
+                parsimonious_def, "discriminator_property_name", None
+            )
+            definition.envelope = getattr(parsimonious_def, "envelope", None)
 
             if parsimonious_def.type.name == "ENUM":
                 definition.values = parsimonious_def.values
+            elif parsimonious_def.type.name == "UNION":
+                definition.fields = parsimonious_def.fields
             else:
                 # Scan fields for union of string literals
                 new_fields = []
@@ -476,12 +503,15 @@ class TypeSpecParser:
                 }
 
         dataclasses = []
+        unions = []
         for name, definition in self.definitions.items():
             if definition.type == TypeSpecType.OBJECT:
                 field_lines = [
                     self._generate_field(field) for field in definition.fields
                 ]
                 dataclasses.append({"name": name, "fields": field_lines})
+            elif definition.type == TypeSpecType.UNION:
+                unions.append(self._prepare_python_union(name, definition))
 
         return self._render_template(
             "py-dataclasses.j2",
@@ -489,6 +519,7 @@ class TypeSpecParser:
             synthetic_enums=synthetic_enums,
             enums=enums,
             dataclasses=dataclasses,
+            unions=unions,
         )
 
     def generate_cpp_headers(self, template_path: Optional[str] = None) -> str:
@@ -517,12 +548,15 @@ class TypeSpecParser:
                 }
 
         dataclasses = []
+        unions = []
         for name, definition in self.definitions.items():
             if definition.type == TypeSpecType.OBJECT:
                 field_lines = [
                     self._generate_cpp_field(field) for field in definition.fields
                 ]
                 dataclasses.append({"name": name, "fields": field_lines})
+            elif definition.type == TypeSpecType.UNION:
+                unions.append(self._prepare_cpp_union(name, definition))
 
         return self._render_template(
             "cpp-headers.j2",
@@ -530,6 +564,7 @@ class TypeSpecParser:
             synthetic_enums=synthetic_enums,
             enums=enums,
             dataclasses=dataclasses,
+            unions=unions,
         )
 
     def generate_rust(self, template_path: Optional[str] = None) -> str:
@@ -539,18 +574,22 @@ class TypeSpecParser:
 
         enums = self._prepare_enum_data(self._to_pascal_case)
         structs = []
+        unions = []
         for name, definition in self.definitions.items():
             if definition.type == TypeSpecType.OBJECT:
                 field_lines = [
                     self._generate_rust_field(field) for field in definition.fields
                 ]
                 structs.append({"name": name, "fields": field_lines})
+            elif definition.type == TypeSpecType.UNION:
+                unions.append(self._prepare_rust_union(name, definition))
 
         return self._render_template(
             "rust.j2",
             template_path,
             enums=enums,
             structs=structs,
+            unions=unions,
         )
 
     def generate_go(
@@ -564,10 +603,13 @@ class TypeSpecParser:
 
         enums = self._prepare_go_enum_data()
         structs = []
+        unions = []
         for name, definition in self.definitions.items():
             if definition.type == TypeSpecType.OBJECT:
                 fields = [self._generate_go_field(field) for field in definition.fields]
                 structs.append({"name": name, "fields": fields})
+            elif definition.type == TypeSpecType.UNION:
+                unions.append(self._prepare_go_union(name, definition))
 
         return self._render_template(
             "go.j2",
@@ -575,6 +617,7 @@ class TypeSpecParser:
             package_name=package_name,
             enums=enums,
             structs=structs,
+            unions=unions,
         )
 
     def generate_zig(self, template_path: Optional[str] = None) -> str:
@@ -584,18 +627,22 @@ class TypeSpecParser:
 
         enums = self._prepare_enum_data(self._to_zig_identifier)
         structs = []
+        unions = []
         for name, definition in self.definitions.items():
             if definition.type == TypeSpecType.OBJECT:
                 field_lines = [
                     self._generate_zig_field(field) for field in definition.fields
                 ]
                 structs.append({"name": name, "fields": field_lines})
+            elif definition.type == TypeSpecType.UNION:
+                unions.append(self._prepare_zig_union(name, definition))
 
         return self._render_template(
             "zig.j2",
             template_path,
             enums=enums,
             structs=structs,
+            unions=unions,
         )
 
     def generate_vlang(
@@ -609,12 +656,15 @@ class TypeSpecParser:
 
         enums = self._prepare_enum_data(self._to_snake_case)
         structs = []
+        unions = []
         for name, definition in self.definitions.items():
             if definition.type == TypeSpecType.OBJECT:
                 field_lines = [
                     self._generate_vlang_field(field) for field in definition.fields
                 ]
                 structs.append({"name": name, "fields": field_lines})
+            elif definition.type == TypeSpecType.UNION:
+                unions.append(self._prepare_vlang_union(name, definition))
 
         return self._render_template(
             "vlang.j2",
@@ -622,7 +672,74 @@ class TypeSpecParser:
             module_name=module_name,
             enums=enums,
             structs=structs,
+            unions=unions,
         )
+
+    def _prepare_python_union(self, name: str, definition: TypeSpecDefinition) -> Dict:
+        """Prepare a Python typing union alias."""
+        return {
+            "name": name,
+            "types": [self._determine_python_type(field) for field in definition.fields],
+            "discriminator_property_name": definition.discriminator_property_name,
+            "envelope": definition.envelope,
+        }
+
+    def _prepare_cpp_union(self, name: str, definition: TypeSpecDefinition) -> Dict:
+        """Prepare a C++ variant alias."""
+        return {
+            "name": name,
+            "types": [self._determine_cpp_type(field) for field in definition.fields],
+            "discriminator_property_name": definition.discriminator_property_name,
+            "envelope": definition.envelope,
+        }
+
+    def _prepare_rust_union(self, name: str, definition: TypeSpecDefinition) -> Dict:
+        """Prepare a Rust enum with payload variants."""
+        return {
+            "name": name,
+            "variants": [
+                {
+                    "name": self._to_pascal_case(field.name),
+                    "type": self._determine_rust_type(field),
+                }
+                for field in definition.fields
+            ],
+            "discriminator_property_name": definition.discriminator_property_name,
+            "envelope": definition.envelope,
+        }
+
+    def _prepare_go_union(self, name: str, definition: TypeSpecDefinition) -> Dict:
+        """Prepare Go interface union data."""
+        return {
+            "name": name,
+            "types": [self._determine_go_type(field) for field in definition.fields],
+            "discriminator_property_name": definition.discriminator_property_name,
+            "envelope": definition.envelope,
+        }
+
+    def _prepare_zig_union(self, name: str, definition: TypeSpecDefinition) -> Dict:
+        """Prepare a Zig tagged union."""
+        return {
+            "name": name,
+            "variants": [
+                {
+                    "name": self._to_zig_identifier(field.name),
+                    "type": self._determine_zig_type(field),
+                }
+                for field in definition.fields
+            ],
+            "discriminator_property_name": definition.discriminator_property_name,
+            "envelope": definition.envelope,
+        }
+
+    def _prepare_vlang_union(self, name: str, definition: TypeSpecDefinition) -> Dict:
+        """Prepare a V sum type."""
+        return {
+            "name": name,
+            "types": [self._determine_vlang_type(field) for field in definition.fields],
+            "discriminator_property_name": definition.discriminator_property_name,
+            "envelope": definition.envelope,
+        }
 
     def _prepare_enum_data(self, normalizer) -> Dict[str, Dict[str, List[str]]]:
         """Prepare normal enum and synthetic string-union enum data."""

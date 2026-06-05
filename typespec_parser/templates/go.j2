@@ -17,3 +17,7 @@ type {{ struct.name }} struct {
 {% endfor %}{% endif %}
 }
 {% endfor %}
+
+{% for union in unions %}
+type {{ union.name }} interface{}
+{% endfor %}

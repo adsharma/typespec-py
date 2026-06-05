@@ -17,6 +17,7 @@ class TypeSpecType(Enum):
     ENUM = "enum"
     OBJECT = "object"
     ARRAY = "array"
+    UNION = "union"
 
 
 @dataclass
@@ -28,6 +29,8 @@ class TypeSpecField:
     is_optional: bool = False
     is_array: bool = False
     reference: Optional[str] = None
+    decorators: List[str] = field(default_factory=list)
+    decorator_arguments: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -38,14 +41,21 @@ class TypeSpecDefinition:
     type: TypeSpecType
     fields: List[TypeSpecField] = field(default_factory=list)
     values: List[str] = field(default_factory=list)
+    decorators: List[str] = field(default_factory=list)
+    decorator_arguments: Dict[str, str] = field(default_factory=dict)
+    value_decorators: Dict[str, List[str]] = field(default_factory=dict)
+    value_decorator_arguments: Dict[str, Dict[str, str]] = field(default_factory=dict)
+    discriminator_property_name: Optional[str] = None
+    envelope: Optional[str] = None
 
 
 # TypeSpec grammar for parsimonious - based on official grammar
 TYPESPEC_GRAMMAR = r"""
 typespec_script = ws statement_list? ws
 statement_list = statement (ws statement)*
-statement = model_statement / enum_statement / union_statement / operation_statement / empty_statement
+statement = import_statement / model_statement / enum_statement / union_statement / operation_statement / empty_statement
 empty_statement = ";"
+import_statement = "import" ws string_literal ws ";"
 model_statement = decorator_list? "model" ws identifier ws template_parameters? ws model_heritage? ws "{" ws model_body? ws "}"
 model_heritage = is_model_heritage / extends_model_heritage
 is_model_heritage = "is" ws expression
@@ -82,7 +92,9 @@ template_parameter = identifier ws template_parameter_constraint? ws template_pa
 template_parameter_constraint = "extends" ws expression
 template_parameter_default = "=" ws expression
 parenthesized_expression = "(" ws expression ws ")"
-object_literal = "{" ws object_literal_body? ws "}"
+object_literal = value_object_literal / plain_object_literal
+value_object_literal = "#{" ws object_literal_body? ws "}"
+plain_object_literal = "{" ws object_literal_body? ws "}"
 object_literal_body = object_property_list
 object_property_list = object_property (ws comma_or_semicolon ws object_property)* (ws comma_or_semicolon)?
 object_property = object_spread_property / (identifier ws ":" ws expression) / (string_literal ws ":" ws expression)
@@ -115,7 +127,7 @@ operation_signature_reference = "is" ws reference_expression
 operation_parameter_list = operation_parameter (ws comma_or_semicolon ws operation_parameter)*
 operation_parameter = decorator_list? identifier ws ":" ws expression
 identifier = ~r"[a-zA-Z_][a-zA-Z0-9_]*"
-ws = ~r"\s*"
+ws = ~r"(\s|//[^\n]*(\n|$)|/\*[^*]*\*+(?:[^/*][^*]*\*+)*/)*"
 """
 
 
@@ -204,13 +216,15 @@ class TypeSpecVisitor(NodeVisitor):
 
         definition = TypeSpecDefinition(name=model_name, type=TypeSpecType.OBJECT)
         definition.fields = properties
+        definition.decorators = self._extract_decorators(node.text)
+        definition.decorator_arguments = self._extract_decorator_arguments(node.text)
         self.definitions[model_name] = definition
         return definition
 
     def visit_model_property(self, node, visited_children):
         """Process a model property."""
-        text = node.text.strip()
-        parts = text.split(":")
+        text = self._strip_leading_decorators(node.text.strip())
+        parts = text.split(":", 1)
         if len(parts) >= 2:
             left_part = parts[0].strip()
             right_part = parts[1].strip().rstrip(";")
@@ -258,6 +272,8 @@ class TypeSpecVisitor(NodeVisitor):
                 is_optional=is_optional,
                 is_array=is_array,
                 reference=reference,
+                decorators=self._extract_decorators(node.text),
+                decorator_arguments=self._extract_decorator_arguments(node.text),
             )
         return None
 
@@ -292,11 +308,14 @@ class TypeSpecVisitor(NodeVisitor):
 
     def visit_enum_statement(self, node, visited_children):
         """Process an enum statement."""
-        # Find the enum name from the identifier nodes
         enum_name = None
-        for child in visited_children:
-            if (
-                hasattr(child, "text")
+        enum_keyword_found = False
+        for child in node.children:
+            if hasattr(child, "text") and child.text == "enum":
+                enum_keyword_found = True
+            elif (
+                enum_keyword_found
+                and hasattr(child, "text")
                 and hasattr(child, "expr_name")
                 and child.expr_name == "identifier"
             ):
@@ -328,12 +347,238 @@ class TypeSpecVisitor(NodeVisitor):
         # Create definition
         definition = TypeSpecDefinition(name=enum_name, type=TypeSpecType.ENUM)
         definition.values = members
+        definition.decorators = self._extract_decorators(node.text)
+        definition.decorator_arguments = self._extract_decorator_arguments(node.text)
+        for member in members:
+            decorators, arguments = self._extract_enum_member_decorators(
+                node.text, member
+            )
+            if decorators:
+                definition.value_decorators[member] = decorators
+            if arguments:
+                definition.value_decorator_arguments[member] = arguments
 
         self.definitions[enum_name] = definition
         return definition
 
+    def visit_union_statement(self, node, visited_children):
+        """Process a union statement."""
+        union_name = None
+        union_keyword_found = False
+        for child in node.children:
+            if hasattr(child, "text") and child.text == "union":
+                union_keyword_found = True
+            elif (
+                union_keyword_found
+                and hasattr(child, "expr_name")
+                and child.expr_name == "identifier"
+            ):
+                union_name = child.text
+                break
+
+        if not union_name:
+            text = node.text.strip()
+            parts = text.split()
+            if "union" in parts:
+                union_idx = parts.index("union")
+                if union_idx + 1 < len(parts):
+                    union_name = parts[union_idx + 1].split("{")[0].strip()
+
+        if not union_name:
+            union_name = "Unknown"
+
+        variants = []
+        for child in visited_children:
+            if isinstance(child, TypeSpecField):
+                variants.append(child)
+            elif isinstance(child, list):
+                variants.extend(item for item in child if isinstance(item, TypeSpecField))
+
+        definition = TypeSpecDefinition(name=union_name, type=TypeSpecType.UNION)
+        definition.fields = variants
+        definition.decorators = self._extract_decorators(node.text)
+        definition.decorator_arguments = self._extract_decorator_arguments(node.text)
+        discriminated_args = definition.decorator_arguments.get("discriminated", "")
+        if discriminated_args:
+            definition.discriminator_property_name = self._extract_string_argument(
+                discriminated_args, "discriminatorPropertyName"
+            )
+            definition.envelope = self._extract_string_argument(
+                discriminated_args, "envelope"
+            )
+
+        self.definitions[union_name] = definition
+        return definition
+
+    def visit_union_variant(self, node, visited_children):
+        """Process a named union variant."""
+        text = self._strip_leading_decorators(node.text.strip().rstrip(",;"))
+        if ":" not in text:
+            return None
+
+        left_part, right_part = text.rsplit(":", 1)
+        name = left_part.split()[-1].strip().strip('"')
+        field_type = right_part.strip()
+
+        is_array = field_type.endswith("[]")
+        if is_array:
+            field_type = field_type[:-2].strip()
+
+        is_optional = field_type.endswith("?")
+        if is_optional:
+            field_type = field_type[:-1].strip()
+
+        reference = None
+        if field_type in ["string", "integer", "int32", "boolean", "number"]:
+            if field_type == "int32":
+                field_type = "integer"
+        else:
+            reference = field_type
+            field_type = "object"
+
+        return TypeSpecField(
+            name=name,
+            type=field_type,
+            is_optional=is_optional,
+            is_array=is_array,
+            reference=reference,
+            decorators=self._extract_decorators(node.text),
+            decorator_arguments=self._extract_decorator_arguments(node.text),
+        )
+
+    @staticmethod
+    def _extract_leading_decorator_texts(text: str) -> List[str]:
+        """Extract leading decorator source snippets from a declaration or member."""
+        snippets = []
+        remaining = text.lstrip()
+
+        while remaining.startswith("@"):
+            pos = 1
+            while pos < len(remaining) and remaining[pos].isspace():
+                pos += 1
+            while pos < len(remaining) and (
+                remaining[pos].isalnum()
+                or remaining[pos] in {"_", "."}
+                or remaining[pos].isspace()
+            ):
+                if remaining[pos].isspace():
+                    lookahead = pos
+                    while lookahead < len(remaining) and remaining[lookahead].isspace():
+                        lookahead += 1
+                    if lookahead >= len(remaining) or remaining[lookahead] not in ".":
+                        break
+                pos += 1
+
+            while pos < len(remaining) and remaining[pos].isspace():
+                pos += 1
+
+            if pos < len(remaining) and remaining[pos] == "(":
+                depth = 0
+                in_string = False
+                escape = False
+                while pos < len(remaining):
+                    char = remaining[pos]
+                    if in_string:
+                        if escape:
+                            escape = False
+                        elif char == "\\":
+                            escape = True
+                        elif char == '"':
+                            in_string = False
+                    else:
+                        if char == '"':
+                            in_string = True
+                        elif char == "(":
+                            depth += 1
+                        elif char == ")":
+                            depth -= 1
+                            if depth == 0:
+                                pos += 1
+                                break
+                    pos += 1
+
+            snippets.append(remaining[:pos].strip())
+            remaining = remaining[pos:].lstrip()
+
+        return snippets
+
+    @classmethod
+    def _strip_leading_decorators(cls, text: str) -> str:
+        """Remove leading decorator source snippets."""
+        remaining = text.lstrip()
+        for snippet in cls._extract_leading_decorator_texts(text):
+            if remaining.startswith(snippet):
+                remaining = remaining[len(snippet) :].lstrip()
+        return remaining
+
+    @classmethod
+    def _extract_decorators(cls, text: str) -> List[str]:
+        """Extract leading decorator names from a declaration."""
+        import re
+
+        decorators = []
+        for snippet in cls._extract_leading_decorator_texts(text):
+            match = re.match(
+                r"@\s*([A-Za-z_][A-Za-z0-9_]*(?:\s*\.\s*[A-Za-z_][A-Za-z0-9_]*)*)",
+                snippet,
+            )
+            if match:
+                decorators.append(re.sub(r"\s+", "", match.group(1)))
+        return decorators
+
+    @classmethod
+    def _extract_decorator_arguments(cls, text: str) -> Dict[str, str]:
+        """Extract raw leading decorator arguments keyed by decorator name."""
+        arguments = {}
+        for snippet in cls._extract_leading_decorator_texts(text):
+            decorators = cls._extract_decorators(snippet)
+            if not decorators:
+                continue
+            name = decorators[0]
+            start = snippet.find("(")
+            end = snippet.rfind(")")
+            if start != -1 and end > start:
+                arguments[name] = snippet[start + 1 : end].strip()
+        return arguments
+
+    @staticmethod
+    def _extract_string_argument(text: str, key: str) -> Optional[str]:
+        """Extract a string value from a decorator object argument."""
+        import re
+
+        match = re.search(rf"{re.escape(key)}\s*:\s*\"([^\"]*)\"", text)
+        return match.group(1) if match else None
+
+    @classmethod
+    def _extract_enum_member_decorators(
+        cls, enum_text: str, member: str
+    ) -> tuple[List[str], Dict[str, str]]:
+        """Extract decorators for a specific enum member."""
+        import re
+
+        body_start = enum_text.find("{")
+        body_end = enum_text.rfind("}")
+        if body_start == -1 or body_end == -1 or body_end <= body_start:
+            return [], {}
+
+        body = enum_text[body_start + 1 : body_end]
+        member_pattern = rf"((?:@\s*[A-Za-z_][A-Za-z0-9_.]*(?:\s*\([^)]*\))?\s*)+){re.escape(member)}\b"
+        match = re.search(member_pattern, body)
+        if not match:
+            return [], {}
+
+        decorator_text = match.group(1)
+        return (
+            cls._extract_decorators(decorator_text),
+            cls._extract_decorator_arguments(decorator_text),
+        )
+
     def visit_empty_statement(self, node, visited_children):
         """Process empty statement."""
+        return None
+
+    def visit_import_statement(self, node, visited_children):
+        """Process an import statement."""
         return None
 
     def visit_model_body(self, node, visited_children):
@@ -380,7 +625,7 @@ class TypeSpecVisitor(NodeVisitor):
     def visit_enum_member(self, node, visited_children):
         """Process an enum member."""
         # Simple approach: extract from node text
-        text = node.text.strip()
+        text = self._strip_leading_decorators(node.text.strip())
 
         # Remove any trailing comma or semicolon
         text = text.rstrip(",;")

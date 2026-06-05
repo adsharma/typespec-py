@@ -9,6 +9,12 @@ pub const {{ name }} = enum {
 };
 {% endfor %}
 
+{% for union in unions %}
+pub const {{ union.name }} = union(enum) {
+{% for variant in union.variants %}    {{ variant.name }}: {{ variant.type }},
+{% endfor %}};
+{% endfor %}
+
 {% for struct in structs %}
 pub const {{ struct.name }} = struct {
 {% if struct.fields %}{% for field in struct.fields %}    {{ field }},

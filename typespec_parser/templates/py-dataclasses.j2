@@ -1,6 +1,7 @@
+from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Union
 
 {% for enum_name, values in synthetic_enums.items() %}
 class {{ enum_name }}(Enum):
@@ -25,4 +26,8 @@ class {{ dc.name }}:
 {% else %}
     pass
 {% endif %}
+{% endfor %}
+
+{% for union in unions %}
+{{ union.name }} = Union[{{ union.types|join(', ') }}]
 {% endfor %}

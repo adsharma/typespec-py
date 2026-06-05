@@ -9,6 +9,10 @@ pub enum {{ name }} {
 }
 {% endfor %}
 
+{% for union in unions %}
+pub type {{ union.name }} = {{ union.types|join(' | ') }}
+{% endfor %}
+
 {% for struct in structs %}
 pub struct {{ struct.name }} {
 pub:
